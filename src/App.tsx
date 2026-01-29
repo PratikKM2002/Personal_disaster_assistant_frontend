@@ -10,6 +10,7 @@ import { EmergencyKit } from './components/EmergencyKit';
 import { SettingsPage } from './components/SettingsPage';
 import { NeighborNetwork } from './components/NeighborNetwork';
 import { ResourceSharing } from './components/ResourceSharing';
+import { NearbyResources } from './components/NearbyResources';
 import { SidebarDrawer } from './components/SidebarDrawer';
 
 type TabType = 'home' | 'map' | 'alerts' | 'community' | 'profile';
@@ -25,6 +26,7 @@ function App() {
     const [showSettings, setShowSettings] = useState(false);
     const [showNeighbors, setShowNeighbors] = useState(false);
     const [showResources, setShowResources] = useState(false);
+    const [showNearbyResources, setShowNearbyResources] = useState(false);
     const [showSidebar, setShowSidebar] = useState(false);
 
     // Handle sidebar navigation
@@ -35,6 +37,7 @@ function App() {
             case 'alerts': setActiveTab('alerts'); break;
             case 'sos': setShowContacts(true); break;
             case 'family': setShowFamily(true); break;
+            case 'nearby-resources': setShowNearbyResources(true); break;
             case 'neighbors': setShowNeighbors(true); break;
             case 'resources': setShowResources(true); break;
             case 'kit': setShowKit(true); break;
@@ -65,6 +68,7 @@ function App() {
             <SettingsPage isOpen={showSettings} onClose={() => setShowSettings(false)} />
             <NeighborNetwork isOpen={showNeighbors} onClose={() => setShowNeighbors(false)} />
             <ResourceSharing isOpen={showResources} onClose={() => setShowResources(false)} />
+            {showNearbyResources && <NearbyResources onClose={() => setShowNearbyResources(false)} />}
 
             {/* Status Bar */}
             <div className="flex items-center justify-between px-6 py-2 text-xs shrink-0">
