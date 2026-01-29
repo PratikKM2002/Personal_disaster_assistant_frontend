@@ -1,222 +1,214 @@
-import { useState, useEffect } from 'react';
-import { Navigation, X, Volume2, VolumeX, ChevronRight, MapPin, Clock, Footprints } from 'lucide-react';
-
-interface NavigationStep {
-    instruction: string;
-    distance: string;
-    icon: string;
-}
+import { useState, useEffect, useRef } from 'react';
+import { X, Volume2, ChevronUp } from 'lucide-react';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 
 interface Props {
     isActive: boolean;
     onClose: () => void;
-    destination: string;
-    totalDistance: string;
-    estimatedTime: string;
 }
 
-const NAVIGATION_STEPS: NavigationStep[] = [
-    { instruction: "Head northeast on Mission St", distance: "0.2 mi", icon: "↗️" },
-    { instruction: "Turn right onto 3rd St", distance: "0.3 mi", icon: "➡️" },
-    { instruction: "Continue straight past Market St", distance: "0.2 mi", icon: "⬆️" },
-    { instruction: "Turn left onto Howard St", distance: "0.1 mi", icon: "⬅️" },
-    { instruction: "Arrive at Moscone Center Shelter", distance: "", icon: "🏠" },
+const STEPS = [
+    { icon: "↗", direction: "Head northeast", street: "Mission St", dist: "0.2 mi", meters: "350 m" },
+    { icon: "→", direction: "Turn right", street: "3rd St", dist: "0.3 mi", meters: "500 m" },
+    { icon: "↑", direction: "Continue straight", street: "Howard St", dist: "0.2 mi", meters: "300 m" },
+    { icon: "📍", direction: "Arrive at", street: "Moscone Center", dist: "", meters: "" },
 ];
 
-export function NavigationPanel({ isActive, onClose, destination, totalDistance, estimatedTime }: Props) {
-    const [currentStep, setCurrentStep] = useState(0);
-    const [isMuted, setIsMuted] = useState(false);
-    const [distanceRemaining, setDistanceRemaining] = useState(0.8);
-    const [timeRemaining, setTimeRemaining] = useState(12);
+// Start and end points
+const START: [number, number] = [-122.4194, 37.7649];
+const END: [number, number] = [-122.4100, 37.7810];
 
-    // Simulate navigation progress
+export function NavigationPanel({ isActive, onClose }: Props) {
+    const [step, setStep] = useState(0);
+    const [showSteps, setShowSteps] = useState(false);
+    const [routeCoords, setRouteCoords] = useState<[number, number][]>([START, END]);
+    const mapContainer = useRef<HTMLDivElement>(null);
+    const map = useRef<maplibregl.Map | null>(null);
+    const userMarker = useRef<maplibregl.Marker | null>(null);
+
+    // Fetch real route from OSRM
     useEffect(() => {
-        if (!isActive) {
-            setCurrentStep(0);
-            setDistanceRemaining(0.8);
-            setTimeRemaining(12);
-            return;
-        }
+        if (!isActive) return;
 
-        const interval = setInterval(() => {
-            setCurrentStep(prev => {
-                if (prev < NAVIGATION_STEPS.length - 1) {
-                    return prev + 1;
+        const fetchRoute = async () => {
+            try {
+                const url = `https://router.project-osrm.org/route/v1/foot/${START[0]},${START[1]};${END[0]},${END[1]}?overview=full&geometries=geojson`;
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.routes && data.routes[0]) {
+                    const coords = data.routes[0].geometry.coordinates as [number, number][];
+                    setRouteCoords(coords);
                 }
-                return prev;
-            });
-            setDistanceRemaining(prev => Math.max(0, prev - 0.15));
-            setTimeRemaining(prev => Math.max(0, prev - 2));
-        }, 5000);
+            } catch (error) {
+                console.error('Failed to fetch route:', error);
+            }
+        };
 
+        fetchRoute();
+    }, [isActive]);
+
+    // Auto-advance steps
+    useEffect(() => {
+        if (!isActive) { setStep(0); setShowSteps(false); return; }
+        const interval = setInterval(() => {
+            setStep(s => s < STEPS.length - 1 ? s + 1 : s);
+        }, 5000);
         return () => clearInterval(interval);
     }, [isActive]);
 
+    // Initialize map
+    useEffect(() => {
+        if (!isActive || !mapContainer.current || map.current) return;
+
+        map.current = new maplibregl.Map({
+            container: mapContainer.current,
+            style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+            center: START,
+            zoom: 15,
+            attributionControl: false,
+            pitch: 60,
+            bearing: 30,
+        });
+
+        const mapInstance = map.current;
+
+        mapInstance.on('load', () => {
+            mapInstance.addSource('route', {
+                type: 'geojson',
+                data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: routeCoords } }
+            });
+
+            mapInstance.addLayer({
+                id: 'route-glow', type: 'line', source: 'route',
+                paint: { 'line-color': '#4285F4', 'line-width': 14, 'line-opacity': 0.4, 'line-blur': 6 }
+            });
+
+            mapInstance.addLayer({
+                id: 'route-line', type: 'line', source: 'route',
+                paint: { 'line-color': '#4285F4', 'line-width': 6 },
+                layout: { 'line-cap': 'round', 'line-join': 'round' }
+            });
+        });
+
+        const userEl = document.createElement('div');
+        userEl.innerHTML = `
+            <div style="width:24px;height:24px;position:relative;">
+                <div style="position:absolute;inset:0;background:#4285F4;border-radius:50%;animation:navPulse 2s infinite;"></div>
+                <div style="position:absolute;inset:4px;background:#4285F4;border:3px solid white;border-radius:50%;box-shadow:0 2px 12px rgba(66,133,244,0.6);"></div>
+                <div style="position:absolute;top:-8px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid #4285F4;"></div>
+            </div>
+        `;
+        userMarker.current = new maplibregl.Marker({ element: userEl }).setLngLat(START).addTo(mapInstance);
+
+        const destEl = document.createElement('div');
+        destEl.innerHTML = `<div style="width:32px;height:32px;background:#34A853;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.3);"><span style="font-size:16px;">🏠</span></div>`;
+        new maplibregl.Marker({ element: destEl }).setLngLat(END).addTo(mapInstance);
+
+        return () => { mapInstance.remove(); map.current = null; userMarker.current = null; };
+    }, [isActive]);
+
+    // Update route on map when routeCoords change
+    useEffect(() => {
+        if (!map.current || routeCoords.length < 2) return;
+
+        const source = map.current.getSource('route') as maplibregl.GeoJSONSource;
+        if (source) {
+            source.setData({
+                type: 'Feature',
+                properties: {},
+                geometry: { type: 'LineString', coordinates: routeCoords }
+            });
+        }
+    }, [routeCoords]);
+
+    // Animate user along route
+    useEffect(() => {
+        if (!map.current || !userMarker.current || !isActive || routeCoords.length < 2) return;
+
+        const progress = step / (STEPS.length - 1);
+        const index = Math.floor(progress * (routeCoords.length - 1));
+        const coord = routeCoords[Math.min(index, routeCoords.length - 1)];
+
+        userMarker.current.setLngLat(coord);
+        map.current.flyTo({ center: coord, duration: 1500 });
+    }, [step, isActive, routeCoords]);
+
     if (!isActive) return null;
 
-    const currentInstruction = NAVIGATION_STEPS[currentStep];
-    const progress = ((currentStep + 1) / NAVIGATION_STEPS.length) * 100;
+    const current = STEPS[step];
+    const distRemaining = Math.max(0, 0.8 - step * 0.2).toFixed(1);
+    const timeRemaining = Math.max(0, 12 - step * 3);
 
     return (
-        <div className="fixed inset-0 z-50 flex flex-col bg-[#0d0d0d]">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-green-600 to-green-500 px-4 py-3 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <Navigation size={24} className="text-white" />
-                    <div>
-                        <p className="text-white/80 text-xs uppercase tracking-wider">Navigating to</p>
-                        <p className="text-white font-bold text-lg">{destination}</p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => setIsMuted(!isMuted)}
-                        className="p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
-                    >
-                        {isMuted ? <VolumeX size={20} className="text-white" /> : <Volume2 size={20} className="text-white" />}
-                    </button>
-                    <button
-                        onClick={onClose}
-                        className="p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
-                    >
-                        <X size={20} className="text-white" />
+        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+            <div ref={mapContainer} className="absolute inset-0" />
+
+            <div className="absolute top-0 inset-x-0 h-40 bg-gradient-to-b from-black/80 to-transparent pointer-events-none" />
+            <div className="absolute bottom-0 inset-x-0 h-60 bg-gradient-to-t from-black/90 to-transparent pointer-events-none" />
+
+            <div className="relative z-10 flex items-center justify-between p-4">
+                <button onClick={onClose} className="w-10 h-10 bg-white/10 backdrop-blur-xl rounded-full flex items-center justify-center">
+                    <X size={20} className="text-white" />
+                </button>
+                <div className="flex gap-2">
+                    <button className="w-10 h-10 bg-white/10 backdrop-blur-xl rounded-full flex items-center justify-center">
+                        <Volume2 size={18} className="text-white" />
                     </button>
                 </div>
             </div>
 
-            {/* Current Instruction */}
-            <div className="bg-[#1a1a1c] p-4 border-b border-white/10">
-                <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 bg-green-500/20 rounded-2xl flex items-center justify-center text-3xl">
-                        {currentInstruction.icon}
+            <div className="absolute top-16 right-4 z-10 bg-white/10 backdrop-blur-xl rounded-2xl px-4 py-3 border border-white/20">
+                <p className="text-green-400 text-2xl font-bold">{timeRemaining} min</p>
+                <p className="text-white/60 text-xs">{distRemaining} mi · Fastest</p>
+            </div>
+
+            <div className="absolute bottom-0 inset-x-0 z-10">
+                <div className="mx-4 mb-4 bg-[#1C1C1E]/95 backdrop-blur-xl rounded-3xl overflow-hidden border border-white/10 shadow-2xl">
+                    <div className="p-5">
+                        <div className="flex items-center gap-4">
+                            <div className="w-16 h-16 bg-[#34C759] rounded-2xl flex items-center justify-center shadow-lg">
+                                <span className="text-white text-3xl font-bold">{current.icon}</span>
+                            </div>
+                            <div className="flex-1">
+                                <p className="text-white text-2xl font-semibold">{current.direction}</p>
+                                <p className="text-white/70 text-lg">{current.street}</p>
+                            </div>
+                            {current.meters && (
+                                <div className="text-right">
+                                    <p className="text-white text-xl font-bold">{current.meters}</p>
+                                </div>
+                            )}
+                        </div>
                     </div>
-                    <div className="flex-1">
-                        <p className="text-white font-bold text-xl leading-tight">{currentInstruction.instruction}</p>
-                        {currentInstruction.distance && (
-                            <p className="text-green-400 font-semibold mt-1">{currentInstruction.distance}</p>
-                        )}
-                    </div>
+
+                    <button onClick={() => setShowSteps(!showSteps)} className="w-full flex items-center justify-center gap-2 py-3 bg-white/5 border-t border-white/10">
+                        <ChevronUp size={18} className={`text-white/50 transition-transform ${showSteps ? 'rotate-180' : ''}`} />
+                        <span className="text-white/50 text-sm">{showSteps ? 'Hide steps' : `${STEPS.length - step - 1} steps remaining`}</span>
+                    </button>
+
+                    {showSteps && (
+                        <div className="border-t border-white/10 max-h-40 overflow-y-auto">
+                            {STEPS.slice(step + 1).map((s, i) => (
+                                <div key={i} className="flex items-center gap-4 px-5 py-3 border-b border-white/5">
+                                    <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center text-white">{s.icon}</div>
+                                    <div className="flex-1"><p className="text-white text-sm">{s.direction} <span className="text-white/50">on {s.street}</span></p></div>
+                                    <p className="text-white/50 text-sm">{s.dist}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="px-4 pb-6">
+                    <button onClick={onClose} className="w-full py-4 bg-[#FF3B30] rounded-2xl text-white font-semibold text-lg shadow-lg">
+                        End Route
+                    </button>
                 </div>
             </div>
 
-            {/* Progress Bar */}
-            <div className="h-1 bg-gray-800">
-                <div
-                    className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-500"
-                    style={{ width: `${progress}%` }}
-                />
-            </div>
-
-            {/* Stats Row */}
-            <div className="grid grid-cols-3 gap-2 p-3 bg-[#111113] border-b border-white/10">
-                <div className="flex items-center gap-2 justify-center">
-                    <Footprints size={16} className="text-gray-400" />
-                    <div>
-                        <p className="text-lg font-bold text-white">{distanceRemaining.toFixed(1)} mi</p>
-                        <p className="text-[10px] text-gray-500 uppercase">Remaining</p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2 justify-center border-x border-white/10">
-                    <Clock size={16} className="text-gray-400" />
-                    <div>
-                        <p className="text-lg font-bold text-white">{timeRemaining} min</p>
-                        <p className="text-[10px] text-gray-500 uppercase">ETA</p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2 justify-center">
-                    <MapPin size={16} className="text-gray-400" />
-                    <div>
-                        <p className="text-lg font-bold text-green-400">{currentStep + 1}/{NAVIGATION_STEPS.length}</p>
-                        <p className="text-[10px] text-gray-500 uppercase">Steps</p>
-                    </div>
-                </div>
-            </div>
-
-            {/* Map Preview Area */}
-            <div className="flex-1 bg-[#0f1419] relative overflow-hidden">
-                {/* Simplified route visualization */}
-                <svg className="w-full h-full" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet">
-                    {/* Grid */}
-                    <defs>
-                        <pattern id="navGrid" width="30" height="30" patternUnits="userSpaceOnUse">
-                            <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#1a1a1a" strokeWidth="1" />
-                        </pattern>
-                    </defs>
-                    <rect width="100%" height="100%" fill="url(#navGrid)" />
-
-                    {/* Route */}
-                    <path
-                        d="M 80 250 L 80 180 L 200 180 L 200 100 L 320 100"
-                        fill="none"
-                        stroke="#22c55e"
-                        strokeWidth="6"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeDasharray="1000"
-                        strokeDashoffset={1000 - (progress * 10)}
-                        style={{ transition: 'stroke-dashoffset 0.5s ease' }}
-                    />
-
-                    {/* Completed route */}
-                    <path
-                        d="M 80 250 L 80 180 L 200 180 L 200 100 L 320 100"
-                        fill="none"
-                        stroke="#166534"
-                        strokeWidth="6"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeDasharray="1000"
-                        strokeDashoffset={1000 - (progress * 10)}
-                        opacity="0.5"
-                    />
-
-                    {/* User position (animated) */}
-                    <circle
-                        cx={80 + (progress * 2.4)}
-                        cy={250 - (progress * 1.5)}
-                        r="12"
-                        fill="#3b82f6"
-                        stroke="white"
-                        strokeWidth="3"
-                    />
-
-                    {/* Destination */}
-                    <circle cx="320" cy="100" r="15" fill="#22c55e" stroke="white" strokeWidth="3" />
-                    <text x="320" y="105" textAnchor="middle" fill="white" fontSize="14">🏠</text>
-                </svg>
-
-                {/* Current location indicator */}
-                <div className="absolute bottom-4 left-4 bg-black/80 backdrop-blur-sm rounded-lg px-3 py-2 border border-blue-500/30">
-                    <p className="text-[10px] text-gray-400 uppercase">Current Location</p>
-                    <p className="text-sm text-white font-medium">Mission District</p>
-                </div>
-            </div>
-
-            {/* Upcoming Steps */}
-            <div className="bg-[#111113] border-t border-white/10 max-h-40 overflow-y-auto">
-                <p className="text-[10px] text-gray-500 uppercase tracking-wider font-bold px-4 pt-3 pb-2">Upcoming</p>
-                {NAVIGATION_STEPS.slice(currentStep + 1).map((step, index) => (
-                    <div key={index} className="flex items-center gap-3 px-4 py-2 border-b border-white/5">
-                        <span className="text-xl">{step.icon}</span>
-                        <p className="text-sm text-white/70 flex-1">{step.instruction}</p>
-                        {step.distance && <span className="text-xs text-gray-500">{step.distance}</span>}
-                        <ChevronRight size={14} className="text-gray-600" />
-                    </div>
-                ))}
-            </div>
-
-            {/* Bottom Actions */}
-            <div className="p-3 bg-[#0d0d0d] border-t border-white/10 flex gap-2">
-                <button
-                    onClick={onClose}
-                    className="flex-1 py-3 bg-red-500/20 hover:bg-red-500/30 rounded-xl text-red-400 font-semibold transition-colors"
-                >
-                    End Navigation
-                </button>
-                <button className="flex-1 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white font-semibold transition-colors">
-                    Share Location
-                </button>
-            </div>
+            <style>{`@keyframes navPulse { 0%, 100% { transform: scale(1); opacity: 0.6; } 50% { transform: scale(2); opacity: 0; } }`}</style>
         </div>
     );
 }

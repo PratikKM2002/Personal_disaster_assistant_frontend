@@ -71,3 +71,105 @@ export const DUMMY_HAZARDS: Hazard[] = [
 ];
 
 export const MOCK_USER_LOCATION = { lat: 37.765, lng: -122.42 };
+
+// User Profile Types
+export interface UserProfile {
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+    location: Location;
+    bloodType?: string;
+    medicalConditions?: string[];
+    allergies?: string[];
+    emergencyContacts: EmergencyContact[];
+}
+
+export interface EmergencyContact {
+    id: string;
+    name: string;
+    phone: string;
+    relationship: string;
+    isPrimary: boolean;
+}
+
+// Family Status Types
+export interface FamilyMember {
+    id: string;
+    name: string;
+    relationship: string;
+    phone: string;
+    status: 'safe' | 'danger' | 'pending' | 'unknown';
+    lastUpdate: Date;
+    location?: Location;
+}
+
+// Community Types
+export interface Neighbor {
+    id: string;
+    name: string;
+    distance: string;
+    apartment?: string;
+    status: 'safe' | 'needs-help' | 'unknown' | 'offering-help';
+    lastUpdate: string;
+    specialNeeds?: string;
+    canOffer?: string[];
+    needs?: string[];
+}
+
+export interface SharedResource {
+    id: string;
+    type: 'offering' | 'requesting';
+    category: 'water' | 'food' | 'shelter' | 'transport' | 'medical' | 'supplies';
+    title: string;
+    description: string;
+    postedBy: string;
+    distance: string;
+    quantity?: string;
+    claimed?: boolean;
+    createdAt: Date;
+}
+
+// Emergency Kit Types
+export interface KitItem {
+    id: string;
+    name: string;
+    category: string;
+    checked: boolean;
+    quantity: number;
+    expirationDate?: string;
+}
+
+export interface KitCategory {
+    id: string;
+    name: string;
+    icon: string;
+    items: KitItem[];
+}
+
+// Alert Types
+export interface Alert {
+    id: string;
+    type: 'critical' | 'warning' | 'advisory' | 'info';
+    title: string;
+    description: string;
+    action: string;
+    timestamp: Date;
+    expiresAt?: Date;
+}
+
+// Mock User
+export const MOCK_USER: UserProfile = {
+    id: 'u1',
+    name: 'Pratik',
+    email: 'pratik@example.com',
+    phone: '+1 (555) 123-4567',
+    location: MOCK_USER_LOCATION,
+    bloodType: 'O+',
+    medicalConditions: [],
+    allergies: [],
+    emergencyContacts: [
+        { id: 'ec1', name: 'Sarah Johnson', phone: '+1 (555) 123-4567', relationship: 'Spouse', isPrimary: true },
+        { id: 'ec2', name: 'Michael Chen', phone: '+1 (555) 987-6543', relationship: 'Brother', isPrimary: false },
+    ]
+};
