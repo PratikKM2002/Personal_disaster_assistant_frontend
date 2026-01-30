@@ -3,25 +3,40 @@ import { X, Volume2, ChevronUp } from 'lucide-react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
+interface Destination {
+    coordinates: [number, number];
+    name: string;
+    icon?: string;
+}
+
 interface Props {
     isActive: boolean;
     onClose: () => void;
+    destination?: Destination;
 }
 
-const STEPS = [
+const getSteps = (destName: string) => [
     { icon: "↗", direction: "Head northeast", street: "Mission St", dist: "0.2 mi", meters: "350 m" },
     { icon: "→", direction: "Turn right", street: "3rd St", dist: "0.3 mi", meters: "500 m" },
     { icon: "↑", direction: "Continue straight", street: "Howard St", dist: "0.2 mi", meters: "300 m" },
-    { icon: "📍", direction: "Arrive at", street: "Moscone Center", dist: "", meters: "" },
+    { icon: "📍", direction: "Arrive at", street: destName, dist: "", meters: "" },
 ];
 
-// Start and end points
-const START: [number, number] = [-122.4194, 37.7649];
-const END: [number, number] = [-122.4100, 37.7810];
+// Default start and end points
+const DEFAULT_START: [number, number] = [-122.4194, 37.7649];
+const DEFAULT_END: [number, number] = [-122.4100, 37.7810];
 
-export function NavigationPanel({ isActive, onClose }: Props) {
+export function NavigationPanel({ isActive, onClose, destination }: Props) {
     const [step, setStep] = useState(0);
     const [showSteps, setShowSteps] = useState(false);
+
+    // Use provided destination or default
+    const START = DEFAULT_START;
+    const END = destination?.coordinates || DEFAULT_END;
+    const destName = destination?.name || 'Moscone Center';
+    const destIcon = destination?.icon || '🏠';
+    const STEPS = getSteps(destName);
+
     const [routeCoords, setRouteCoords] = useState<[number, number][]>([START, END]);
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<maplibregl.Map | null>(null);
@@ -47,16 +62,24 @@ export function NavigationPanel({ isActive, onClose }: Props) {
         };
 
         fetchRoute();
-    }, [isActive]);
+    }, [isActive, END[0], END[1]]);
 
     // Auto-advance steps
     useEffect(() => {
-        if (!isActive) { setStep(0); setShowSteps(false); return; }
+        if (!isActive) {
+            setStep(0);
+            setShowSteps(false);
+            return;
+        }
+
+        // Reset step to 0 when navigation starts
+        setStep(0);
+
         const interval = setInterval(() => {
             setStep(s => s < STEPS.length - 1 ? s + 1 : s);
-        }, 5000);
+        }, 8000); // Slower interval for better demo
         return () => clearInterval(interval);
-    }, [isActive]);
+    }, [isActive, destName]); // Re-run when destination changes
 
     // Initialize map
     useEffect(() => {
@@ -103,7 +126,7 @@ export function NavigationPanel({ isActive, onClose }: Props) {
         userMarker.current = new maplibregl.Marker({ element: userEl }).setLngLat(START).addTo(mapInstance);
 
         const destEl = document.createElement('div');
-        destEl.innerHTML = `<div style="width:32px;height:32px;background:#34A853;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.3);"><span style="font-size:16px;">🏠</span></div>`;
+        destEl.innerHTML = `<div style="width:32px;height:32px;background:#34A853;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.3);"><span style="font-size:16px;">${destIcon}</span></div>`;
         new maplibregl.Marker({ element: destEl }).setLngLat(END).addTo(mapInstance);
 
         return () => { mapInstance.remove(); map.current = null; userMarker.current = null; };
@@ -142,7 +165,7 @@ export function NavigationPanel({ isActive, onClose }: Props) {
     const timeRemaining = Math.max(0, 12 - step * 3);
 
     return (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+        <div className="absolute inset-0 z-50 bg-black flex flex-col overflow-hidden rounded-[40px]">
             <div ref={mapContainer} className="absolute inset-0" />
 
             <div className="absolute top-0 inset-x-0 h-40 bg-gradient-to-b from-black/80 to-transparent pointer-events-none" />

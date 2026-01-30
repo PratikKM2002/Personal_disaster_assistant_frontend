@@ -30,8 +30,8 @@ body {
 #root {
   width: 100%;
   max-width: 400px;
-  min-height: 800px;
-  max-height: 900px;
+  height: 800px;
+  max-height: 90vh;
   background: #0d0d0d;
   border-radius: 40px;
   overflow: hidden;

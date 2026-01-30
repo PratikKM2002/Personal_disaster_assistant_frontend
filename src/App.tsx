@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { Menu, Shield, Wifi, Battery, Signal, Settings, Users, Package, Home, Map, Bell, User, Heart, Share2 } from 'lucide-react';
+import { Menu, Shield, Wifi, Battery, Signal, Settings, Users, Package, Home, Map, Bell, User, Heart, FileText, Share2 } from 'lucide-react';
 import { RealMap } from './components/RealMap';
-import { NavigationPanel } from './components/NavigationPanel';
 import { SOSButton } from './components/SOSButton';
 import { EmergencyContacts } from './components/EmergencyContacts';
 import { FamilyStatus } from './components/FamilyStatus';
@@ -12,11 +11,13 @@ import { NeighborNetwork } from './components/NeighborNetwork';
 import { ResourceSharing } from './components/ResourceSharing';
 import { NearbyResources } from './components/NearbyResources';
 import { SidebarDrawer } from './components/SidebarDrawer';
+import { AlertsPage } from './components/AlertsPage';
+import { WeatherWidget } from './components/WeatherWidget';
+import { DocumentVault } from './components/DocumentVault';
 
 type TabType = 'home' | 'map' | 'alerts' | 'community' | 'profile';
 
 function App() {
-    const [isNavigating, setIsNavigating] = useState(false);
     const [activeTab, setActiveTab] = useState<TabType>('home');
 
     // Modal states
@@ -28,12 +29,14 @@ function App() {
     const [showResources, setShowResources] = useState(false);
     const [showNearbyResources, setShowNearbyResources] = useState(false);
     const [showSidebar, setShowSidebar] = useState(false);
+    const [showAlerts, setShowAlerts] = useState(false);
+    const [showDocuments, setShowDocuments] = useState(false);
 
     // Handle sidebar navigation
     const handleSidebarNavigate = (screen: string) => {
         switch (screen) {
             case 'home': setActiveTab('home'); break;
-            case 'map': setIsNavigating(true); break;
+            case 'map': setShowNearbyResources(true); break;
             case 'alerts': setActiveTab('alerts'); break;
             case 'sos': setShowContacts(true); break;
             case 'family': setShowFamily(true); break;
@@ -50,9 +53,7 @@ function App() {
     const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     return (
-        <div className="w-full h-full flex flex-col bg-[#0d0d0d] text-white overflow-hidden">
-            {/* Navigation Overlay */}
-            <NavigationPanel isActive={isNavigating} onClose={() => setIsNavigating(false)} />
+        <div className="w-full h-full flex flex-col bg-[#0d0d0d] text-white relative">
 
             {/* Sidebar Drawer */}
             <SidebarDrawer
@@ -68,7 +69,17 @@ function App() {
             <SettingsPage isOpen={showSettings} onClose={() => setShowSettings(false)} />
             <NeighborNetwork isOpen={showNeighbors} onClose={() => setShowNeighbors(false)} />
             <ResourceSharing isOpen={showResources} onClose={() => setShowResources(false)} />
-            {showNearbyResources && <NearbyResources onClose={() => setShowNearbyResources(false)} />}
+            <AlertsPage isOpen={showAlerts} onClose={() => setShowAlerts(false)} />
+            <DocumentVault isOpen={showDocuments} onClose={() => setShowDocuments(false)} />
+            {showNearbyResources && (
+                <NearbyResources
+                    onClose={() => setShowNearbyResources(false)}
+                    onNavigate={() => {
+                        // Just close the modal - navigation removed
+                        setShowNearbyResources(false);
+                    }}
+                />
+            )}
 
             {/* Status Bar */}
             <div className="flex items-center justify-between px-6 py-2 text-xs shrink-0">
@@ -104,20 +115,29 @@ function App() {
             </header>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto hide-scrollbar px-3 pb-24 space-y-2.5">
+            <div className="flex-1 overflow-y-auto px-3 pb-4 space-y-2.5">
 
-                {/* Alert */}
-                <div className="bg-gradient-to-r from-red-800 to-red-900 rounded-xl p-3 border border-red-700/50">
+                {/* Alert Banner - clickable to open AlertsPage */}
+                <button
+                    onClick={() => setShowAlerts(true)}
+                    className="w-full text-left bg-gradient-to-r from-red-800 to-red-900 rounded-xl p-3 border border-red-700/50 hover:from-red-700 hover:to-red-800 transition-colors"
+                >
                     <p className="text-white font-bold text-sm">⚠️ CRITICAL: Wildfire - Evacuate Zone B NOW</p>
-                    <p className="text-red-200/80 text-xs mt-1">Last update: 2 minutes ago</p>
-                </div>
+                    <p className="text-red-200/80 text-xs mt-1">Tap to see all alerts • Last update: 2 minutes ago</p>
+                </button>
+
+                {/* Weather Widget */}
+                <WeatherWidget />
 
                 {/* Quick Actions */}
                 <div className="flex gap-2">
-                    <div className="flex-1 bg-orange-900/40 border border-orange-700/30 rounded-lg p-2.5">
-                        <p className="text-[9px] text-orange-400 font-bold uppercase">Warnings</p>
-                        <p className="text-[11px] text-white/80 mt-0.5">Wildfire spreading, AQI 180</p>
-                    </div>
+                    <button
+                        onClick={() => setShowAlerts(true)}
+                        className="flex-1 bg-orange-900/40 border border-orange-700/30 rounded-lg p-2.5 text-left hover:bg-orange-900/60 transition-colors"
+                    >
+                        <p className="text-[9px] text-orange-400 font-bold uppercase">3 Active Alerts</p>
+                        <p className="text-[11px] text-white/80 mt-0.5">Wildfire, AQI, Road Closure</p>
+                    </button>
                     <button
                         onClick={() => setShowContacts(true)}
                         className="bg-red-600 hover:bg-red-700 rounded-lg px-3 flex items-center gap-1.5 transition-colors"
@@ -128,8 +148,10 @@ function App() {
                 </div>
 
                 {/* Map */}
-                <div className="rounded-xl overflow-hidden h-48">
-                    <RealMap onNavigate={() => setIsNavigating(true)} />
+                <div className="rounded-xl overflow-hidden h-56">
+                    <RealMap onNavigate={() => {
+                        setShowNearbyResources(true);
+                    }} />
                 </div>
 
                 {/* Feature Grid */}
@@ -162,13 +184,13 @@ function App() {
                         <span className="text-[9px] text-teal-300 font-medium">Neighbors</span>
                     </button>
                     <button
-                        onClick={() => setShowResources(true)}
-                        className="bg-emerald-900/40 hover:bg-emerald-900/60 border border-emerald-700/30 rounded-xl p-3 flex flex-col items-center gap-1.5 transition-colors"
+                        onClick={() => setShowDocuments(true)}
+                        className="bg-orange-900/40 hover:bg-orange-900/60 border border-orange-700/30 rounded-xl p-3 flex flex-col items-center gap-1.5 transition-colors"
                     >
-                        <div className="w-8 h-8 bg-emerald-500/30 rounded-lg flex items-center justify-center">
-                            <Share2 size={16} className="text-emerald-400" />
+                        <div className="w-8 h-8 bg-orange-500/30 rounded-lg flex items-center justify-center">
+                            <FileText size={16} className="text-orange-400" />
                         </div>
-                        <span className="text-[9px] text-emerald-300 font-medium">Resources</span>
+                        <span className="text-[9px] text-orange-300 font-medium">Docs</span>
                     </button>
                 </div>
 
@@ -234,7 +256,7 @@ function App() {
             </div>
 
             {/* Bottom Navigation */}
-            <div className="fixed bottom-0 left-0 right-0 bg-[#1a1a1a]/95 backdrop-blur-xl border-t border-white/10 px-4 py-2 z-40">
+            <div className="shrink-0 bg-[#1a1a1a] border-t border-white/10 px-4 py-2">
                 <div className="flex items-center justify-around">
                     {[
                         { id: 'home', icon: Home, label: 'Home' },
@@ -251,7 +273,9 @@ function App() {
                                 } else if (tab.id === 'profile') {
                                     setShowSettings(true);
                                 } else if (tab.id === 'map') {
-                                    setIsNavigating(true);
+                                    setShowNearbyResources(true);
+                                } else if (tab.id === 'alerts') {
+                                    setShowAlerts(true);
                                 } else {
                                     setActiveTab(tab.id as TabType);
                                 }

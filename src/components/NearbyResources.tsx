@@ -4,6 +4,7 @@ import clsx from 'clsx';
 
 interface Props {
     onClose: () => void;
+    onNavigate?: (destination: { coordinates: [number, number]; name: string; icon: string }) => void;
 }
 
 type ResourceCategory = 'all' | 'shelters' | 'hospitals' | 'fire' | 'police' | 'supplies' | 'gas' | 'food';
@@ -180,10 +181,11 @@ const CATEGORIES = [
     { id: 'food', label: 'Food', icon: '🍲' },
 ];
 
-export function NearbyResources({ onClose }: Props) {
+export function NearbyResources({ onClose, onNavigate }: Props) {
     const [selectedCategory, setSelectedCategory] = useState<ResourceCategory>('all');
     const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
     const [showSafeOnly, setShowSafeOnly] = useState(false);
+    const [hazardWarningResource, setHazardWarningResource] = useState<Resource | null>(null);
 
     const filteredResources = RESOURCES.filter(r => {
         const categoryMatch = selectedCategory === 'all' || r.category === selectedCategory;
@@ -193,9 +195,37 @@ export function NearbyResources({ onClose }: Props) {
 
     const hazardCount = RESOURCES.filter(r => r.inHazardZone).length;
 
+    const handleResourceClick = (resource: Resource) => {
+        if (resource.inHazardZone) {
+            // Show hazard warning popup first
+            setHazardWarningResource(resource);
+        } else {
+            // Safe resource, go directly to detail view
+            setSelectedResource(resource);
+        }
+    };
+
+    const handleProceedAnyway = () => {
+        if (hazardWarningResource) {
+            setSelectedResource(hazardWarningResource);
+            setHazardWarningResource(null);
+        }
+    };
+
     const handleNavigate = (resource: Resource) => {
-        const url = `https://www.google.com/maps/dir/?api=1&destination=${resource.coordinates[1]},${resource.coordinates[0]}`;
-        window.open(url, '_blank');
+        if (onNavigate) {
+            // Use in-app navigation
+            onNavigate({
+                coordinates: resource.coordinates,
+                name: resource.name,
+                icon: resource.icon
+            });
+            onClose(); // Close the resources panel
+        } else {
+            // Fallback to Google Maps
+            const url = `https://www.google.com/maps/dir/?api=1&destination=${resource.coordinates[1]},${resource.coordinates[0]}`;
+            window.open(url, '_blank');
+        }
     };
 
     const handleCall = (phone: string) => {
@@ -210,6 +240,75 @@ export function NearbyResources({ onClose }: Props) {
             default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
         }
     };
+
+    // Hazard Warning Popup
+    if (hazardWarningResource) {
+        return (
+            <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+                <div className="w-full max-w-sm bg-[#1c1c1e] rounded-3xl overflow-hidden border border-orange-500/50 shadow-2xl">
+                    {/* Warning Header */}
+                    <div className="bg-gradient-to-r from-orange-600 to-red-600 p-6 text-center">
+                        <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                            <AlertTriangle size={32} className="text-yellow-300" />
+                        </div>
+                        <h2 className="text-white font-bold text-xl">⚠️ Safety Warning</h2>
+                        <p className="text-white/80 text-sm mt-1">This location is in a hazard zone</p>
+                    </div>
+
+                    {/* Warning Content */}
+                    <div className="p-5 space-y-4">
+                        <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4">
+                            <div className="flex items-center gap-3 mb-2">
+                                <div className="w-10 h-10 bg-orange-500/20 rounded-lg flex items-center justify-center text-xl">
+                                    {hazardWarningResource.icon}
+                                </div>
+                                <div>
+                                    <p className="text-white font-medium">{hazardWarningResource.name}</p>
+                                    <p className="text-orange-400 text-xs">{hazardWarningResource.type}</p>
+                                </div>
+                            </div>
+                            <p className="text-orange-300 text-sm flex items-center gap-2">
+                                <AlertTriangle size={14} />
+                                {hazardWarningResource.hazardWarning || 'Located in active hazard area'}
+                            </p>
+                        </div>
+
+                        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+                            <p className="text-red-400 text-sm font-medium mb-2">🚨 Travel Advisory</p>
+                            <ul className="text-gray-400 text-xs space-y-1">
+                                <li>• Road conditions may be dangerous</li>
+                                <li>• Emergency services may be delayed</li>
+                                <li>• Evacuation orders may be in effect</li>
+                                <li>• Air quality may be hazardous</li>
+                            </ul>
+                        </div>
+
+                        <p className="text-gray-500 text-xs text-center">
+                            We recommend choosing a safer alternative location when possible.
+                        </p>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="p-4 border-t border-white/10 space-y-2">
+                        <button
+                            onClick={() => setHazardWarningResource(null)}
+                            className="w-full py-3 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 rounded-xl font-semibold flex items-center justify-center gap-2 text-white transition-all"
+                        >
+                            <ShieldCheck size={18} />
+                            Choose Safer Location
+                        </button>
+                        <button
+                            onClick={handleProceedAnyway}
+                            className="w-full py-3 bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/30 rounded-xl font-medium flex items-center justify-center gap-2 text-orange-400 transition-all"
+                        >
+                            <AlertTriangle size={16} />
+                            I Understand, Proceed Anyway
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     // Detail View
     if (selectedResource) {
@@ -394,132 +493,97 @@ export function NearbyResources({ onClose }: Props) {
                             >
                                 <ChevronLeft size={18} className="text-white" />
                             </button>
-                            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-                                <Building2 size={20} className="text-white" />
-                            </div>
                             <div>
                                 <h2 className="text-white font-bold text-lg">Nearby Resources</h2>
-                                <p className="text-white/70 text-xs">{filteredResources.length} locations found</p>
+                                <p className="text-white/70 text-xs">{filteredResources.length} locations • {hazardCount} in hazard zone</p>
                             </div>
                         </div>
+
+                        {/* Safe Zone Toggle */}
+                        <button
+                            onClick={() => setShowSafeOnly(!showSafeOnly)}
+                            className={clsx(
+                                "px-3 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5",
+                                showSafeOnly
+                                    ? "bg-green-500 text-white"
+                                    : "bg-white/10 text-white hover:bg-white/20"
+                            )}
+                        >
+                            <ShieldCheck size={14} />
+                            {showSafeOnly ? 'Safe' : 'All'}
+                        </button>
                     </div>
 
-                    {/* Hazard Warning Banner */}
-                    {hazardCount > 0 && (
-                        <div className="mt-3 bg-orange-500/20 border border-orange-500/30 rounded-lg p-2 flex items-center gap-2">
-                            <AlertTriangle size={16} className="text-orange-400 shrink-0" />
-                            <p className="text-orange-200 text-xs flex-1">
-                                {hazardCount} location{hazardCount > 1 ? 's' : ''} in hazard zone
-                            </p>
-                            <button
-                                onClick={() => setShowSafeOnly(!showSafeOnly)}
-                                className={clsx(
-                                    "px-2 py-1 rounded text-xs font-medium transition-all flex items-center gap-1",
-                                    showSafeOnly
-                                        ? "bg-green-500 text-white"
-                                        : "bg-white/20 text-white hover:bg-white/30"
-                                )}
-                            >
-                                <ShieldCheck size={12} />
-                                {showSafeOnly ? 'Safe Only' : 'Show All'}
-                            </button>
-                        </div>
-                    )}
-
                     {/* Category Filter */}
-                    <div className="flex gap-2 mt-3 overflow-x-auto hide-scrollbar pb-1">
+                    <div className="flex gap-1.5 mt-3 overflow-x-auto hide-scrollbar pb-1">
                         {CATEGORIES.map(cat => (
                             <button
                                 key={cat.id}
                                 onClick={() => setSelectedCategory(cat.id as ResourceCategory)}
                                 className={clsx(
-                                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all",
+                                    "px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all",
                                     selectedCategory === cat.id
                                         ? "bg-white text-gray-900"
-                                        : "bg-white/10 text-white hover:bg-white/20"
+                                        : "bg-white/10 text-white/80 hover:bg-white/20"
                                 )}
                             >
-                                <span>{cat.icon}</span>
-                                <span>{cat.label}</span>
+                                {cat.icon} {cat.label}
                             </button>
                         ))}
                     </div>
                 </div>
 
                 {/* Resource List */}
-                <div className="flex-1 overflow-y-auto p-4">
+                <div className="flex-1 overflow-y-auto p-3">
                     <div className="space-y-2">
                         {filteredResources.map(resource => (
                             <button
                                 key={resource.id}
-                                onClick={() => setSelectedResource(resource)}
+                                onClick={() => handleResourceClick(resource)}
                                 className={clsx(
-                                    "w-full rounded-xl p-3 flex items-center gap-3 transition-colors text-left relative",
+                                    "w-full rounded-xl p-3 flex items-center gap-3 transition-all text-left",
                                     resource.inHazardZone
-                                        ? "bg-orange-500/10 border border-orange-500/30 hover:bg-orange-500/20"
-                                        : "bg-white/5 hover:bg-white/10"
+                                        ? "bg-gradient-to-r from-orange-500/10 to-red-500/5 border-l-4 border-orange-500 hover:from-orange-500/20 hover:to-red-500/10"
+                                        : "bg-white/5 border-l-4 border-green-500/50 hover:bg-white/10"
                                 )}
                             >
-                                {/* Hazard Zone Indicator */}
-                                {resource.inHazardZone && (
-                                    <div className="absolute top-2 right-2">
-                                        <div className="flex items-center gap-1 px-1.5 py-0.5 bg-orange-500/30 rounded text-[9px] text-orange-300 font-medium">
-                                            <AlertTriangle size={10} />
-                                            HAZARD
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Safe Zone Indicator */}
-                                {!resource.inHazardZone && (
-                                    <div className="absolute top-2 right-2">
-                                        <div className="flex items-center gap-1 px-1.5 py-0.5 bg-green-500/20 rounded text-[9px] text-green-400 font-medium">
-                                            <ShieldCheck size={10} />
-                                            SAFE
-                                        </div>
-                                    </div>
-                                )}
-
                                 <div className={clsx(
-                                    "w-12 h-12 rounded-xl flex items-center justify-center text-xl shrink-0",
+                                    "w-10 h-10 rounded-lg flex items-center justify-center text-lg shrink-0",
                                     resource.inHazardZone ? "bg-orange-500/20" : "bg-white/10"
                                 )}>
                                     {resource.icon}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 pr-16">
+                                    <div className="flex items-center gap-2">
                                         <p className="text-white font-medium text-sm truncate">{resource.name}</p>
                                         <span className={clsx(
-                                            "px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0",
-                                            getStatusColor(resource.status)
+                                            "px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0",
+                                            resource.status === 'open' ? "bg-green-500/20 text-green-400" :
+                                                resource.status === 'limited' ? "bg-yellow-500/20 text-yellow-400" : "bg-red-500/20 text-red-400"
                                         )}>
-                                            {resource.status === 'open' ? 'Open' :
-                                                resource.status === 'limited' ? 'Limited' : 'Closed'}
+                                            {resource.status === 'open' ? 'Open' : resource.status === 'limited' ? 'Limited' : 'Closed'}
                                         </span>
                                     </div>
-                                    <p className="text-gray-500 text-xs truncate">{resource.type}</p>
-                                    {resource.inHazardZone && resource.hazardWarning && (
-                                        <p className="text-orange-400 text-xs flex items-center gap-1 mt-0.5">
-                                            <AlertTriangle size={10} />
-                                            {resource.hazardWarning}
-                                        </p>
-                                    )}
-                                    {!resource.inHazardZone && resource.capacity && (
-                                        <p className="text-blue-400 text-xs">{resource.capacity}</p>
-                                    )}
+                                    <p className="text-gray-500 text-xs">{resource.type}</p>
                                 </div>
-                                <div className="text-right shrink-0">
-                                    <p className="text-white text-sm font-medium">{resource.distance}</p>
+                                <div className="text-right shrink-0 flex flex-col items-end gap-1">
+                                    <div className="flex items-center gap-1">
+                                        {resource.inHazardZone && <AlertTriangle size={12} className="text-orange-400" />}
+                                        <span className={clsx(
+                                            "text-sm font-semibold",
+                                            resource.inHazardZone ? "text-orange-400" : "text-white"
+                                        )}>{resource.distance}</span>
+                                    </div>
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             handleNavigate(resource);
                                         }}
                                         className={clsx(
-                                            "mt-1 px-2 py-1 rounded text-xs transition-colors flex items-center gap-1",
+                                            "px-2.5 py-1 rounded-lg text-xs font-medium transition-colors flex items-center gap-1",
                                             resource.inHazardZone
-                                                ? "bg-orange-500/20 text-orange-400 hover:bg-orange-500/30"
-                                                : "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                                                ? "bg-orange-500 text-white hover:bg-orange-600"
+                                                : "bg-blue-500 text-white hover:bg-blue-600"
                                         )}
                                     >
                                         <Navigation size={10} />
@@ -532,19 +596,25 @@ export function NearbyResources({ onClose }: Props) {
                 </div>
 
                 {/* Quick Actions */}
-                <div className="sticky bottom-0 bg-[#1c1c1e] border-t border-white/10 p-4 shrink-0">
-                    <div className="grid grid-cols-2 gap-3">
+                <div className="sticky bottom-0 bg-[#1c1c1e]/95 backdrop-blur border-t border-white/10 p-3 shrink-0">
+                    <div className="flex gap-2">
                         <button
                             onClick={() => setSelectedCategory('shelters')}
-                            className="py-3 px-4 bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-xl font-medium flex items-center justify-center gap-2 text-green-400 hover:from-green-500/30 hover:to-emerald-500/30 transition-all"
+                            className="flex-1 py-2.5 bg-green-500/20 rounded-xl font-medium text-sm text-green-400 hover:bg-green-500/30 transition-all"
                         >
                             🏠 Shelters
                         </button>
                         <button
                             onClick={() => setSelectedCategory('hospitals')}
-                            className="py-3 px-4 bg-gradient-to-r from-red-500/20 to-rose-500/20 border border-red-500/30 rounded-xl font-medium flex items-center justify-center gap-2 text-red-400 hover:from-red-500/30 hover:to-rose-500/30 transition-all"
+                            className="flex-1 py-2.5 bg-red-500/20 rounded-xl font-medium text-sm text-red-400 hover:bg-red-500/30 transition-all"
                         >
                             🏥 Hospitals
+                        </button>
+                        <button
+                            onClick={() => setSelectedCategory('supplies')}
+                            className="flex-1 py-2.5 bg-blue-500/20 rounded-xl font-medium text-sm text-blue-400 hover:bg-blue-500/30 transition-all"
+                        >
+                            📦 Supplies
                         </button>
                     </div>
                 </div>
