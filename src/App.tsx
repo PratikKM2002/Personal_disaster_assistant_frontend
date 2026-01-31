@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Menu, Shield, Wifi, Battery, Signal, Settings, Users, Package, Home, Map, Bell, User, Heart, FileText, Share2 } from 'lucide-react';
 import { RealMap } from './components/RealMap';
-import { SOSButton } from './components/SOSButton';
+import { NavigationPanel } from './components/NavigationPanel';
 import { EmergencyContacts } from './components/EmergencyContacts';
 import { FamilyStatus } from './components/FamilyStatus';
 import { ChatBot } from './components/ChatBot';
@@ -17,8 +17,16 @@ import { DocumentVault } from './components/DocumentVault';
 
 type TabType = 'home' | 'map' | 'alerts' | 'community' | 'profile';
 
+interface NavigationDestination {
+    coordinates: [number, number];
+    name: string;
+    icon?: string;
+}
+
 function App() {
     const [activeTab, setActiveTab] = useState<TabType>('home');
+    const [isNavigating, setIsNavigating] = useState(false);
+    const [navigationDestination, setNavigationDestination] = useState<NavigationDestination | null>(null);
 
     // Modal states
     const [showContacts, setShowContacts] = useState(false);
@@ -37,13 +45,14 @@ function App() {
         switch (screen) {
             case 'home': setActiveTab('home'); break;
             case 'map': setShowNearbyResources(true); break;
-            case 'alerts': setActiveTab('alerts'); break;
+            case 'alerts': setShowAlerts(true); break;
             case 'sos': setShowContacts(true); break;
             case 'family': setShowFamily(true); break;
             case 'nearby-resources': setShowNearbyResources(true); break;
             case 'neighbors': setShowNeighbors(true); break;
             case 'resources': setShowResources(true); break;
             case 'kit': setShowKit(true); break;
+            case 'documents': setShowDocuments(true); break;
             case 'settings': setShowSettings(true); break;
             case 'profile': setShowSettings(true); break;
             default: break;
@@ -54,6 +63,13 @@ function App() {
 
     return (
         <div className="w-full h-full flex flex-col bg-[#0d0d0d] text-white relative">
+
+            {/* Navigation Overlay - uses OSRM for real street routing */}
+            <NavigationPanel
+                isActive={isNavigating}
+                onClose={() => { setIsNavigating(false); setNavigationDestination(null); }}
+                destination={navigationDestination || undefined}
+            />
 
             {/* Sidebar Drawer */}
             <SidebarDrawer
@@ -69,13 +85,21 @@ function App() {
             <SettingsPage isOpen={showSettings} onClose={() => setShowSettings(false)} />
             <NeighborNetwork isOpen={showNeighbors} onClose={() => setShowNeighbors(false)} />
             <ResourceSharing isOpen={showResources} onClose={() => setShowResources(false)} />
-            <AlertsPage isOpen={showAlerts} onClose={() => setShowAlerts(false)} />
+            <AlertsPage
+                isOpen={showAlerts}
+                onClose={() => setShowAlerts(false)}
+                onNavigate={(dest) => {
+                    setNavigationDestination(dest);
+                    setIsNavigating(true);
+                }}
+            />
             <DocumentVault isOpen={showDocuments} onClose={() => setShowDocuments(false)} />
             {showNearbyResources && (
                 <NearbyResources
                     onClose={() => setShowNearbyResources(false)}
-                    onNavigate={() => {
-                        // Just close the modal - navigation removed
+                    onNavigate={(dest) => {
+                        setNavigationDestination(dest);
+                        setIsNavigating(true);
                         setShowNearbyResources(false);
                     }}
                 />
@@ -149,8 +173,13 @@ function App() {
 
                 {/* Map */}
                 <div className="rounded-xl overflow-hidden h-56">
-                    <RealMap onNavigate={() => {
-                        setShowNearbyResources(true);
+                    <RealMap onNavigate={(dest) => {
+                        if (dest) {
+                            setNavigationDestination(dest);
+                            setIsNavigating(true);
+                        } else {
+                            setShowNearbyResources(true);
+                        }
                     }} />
                 </div>
 
@@ -291,9 +320,6 @@ function App() {
                     ))}
                 </div>
             </div>
-
-            {/* SOS Button */}
-            <SOSButton className="fixed bottom-24 right-4 z-50" />
 
             {/* ChatBot */}
             <ChatBot />

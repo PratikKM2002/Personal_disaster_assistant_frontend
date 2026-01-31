@@ -42,19 +42,27 @@ export function NavigationPanel({ isActive, onClose, destination }: Props) {
     const map = useRef<maplibregl.Map | null>(null);
     const userMarker = useRef<maplibregl.Marker | null>(null);
 
-    // Fetch real route from OSRM
+    // Fetch real route from OSRM (uses real street routing)
     useEffect(() => {
         if (!isActive) return;
 
         const fetchRoute = async () => {
             try {
+                // OSRM walking route API - returns real street-following routes
                 const url = `https://router.project-osrm.org/route/v1/foot/${START[0]},${START[1]};${END[0]},${END[1]}?overview=full&geometries=geojson`;
+                console.log('Fetching OSRM route:', url);
+
                 const response = await fetch(url);
                 const data = await response.json();
 
-                if (data.routes && data.routes[0]) {
+                console.log('OSRM response:', data);
+
+                if (data.code === 'Ok' && data.routes && data.routes[0]) {
                     const coords = data.routes[0].geometry.coordinates as [number, number][];
+                    console.log('Route has', coords.length, 'points');
                     setRouteCoords(coords);
+                } else {
+                    console.error('OSRM returned no route:', data);
                 }
             } catch (error) {
                 console.error('Failed to fetch route:', error);
@@ -77,9 +85,9 @@ export function NavigationPanel({ isActive, onClose, destination }: Props) {
 
         const interval = setInterval(() => {
             setStep(s => s < STEPS.length - 1 ? s + 1 : s);
-        }, 8000); // Slower interval for better demo
+        }, 8000); // 8 seconds per step
         return () => clearInterval(interval);
-    }, [isActive, destName]); // Re-run when destination changes
+    }, [isActive, STEPS.length]);
 
     // Initialize map
     useEffect(() => {
@@ -98,9 +106,10 @@ export function NavigationPanel({ isActive, onClose, destination }: Props) {
         const mapInstance = map.current;
 
         mapInstance.on('load', () => {
+            // Add route source (initially empty, will be updated when OSRM responds)
             mapInstance.addSource('route', {
                 type: 'geojson',
-                data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: routeCoords } }
+                data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } }
             });
 
             mapInstance.addLayer({
@@ -113,6 +122,18 @@ export function NavigationPanel({ isActive, onClose, destination }: Props) {
                 paint: { 'line-color': '#4285F4', 'line-width': 6 },
                 layout: { 'line-cap': 'round', 'line-join': 'round' }
             });
+
+            // Update route immediately if we already have coords
+            if (routeCoords.length > 2) {
+                const source = mapInstance.getSource('route') as maplibregl.GeoJSONSource;
+                if (source) {
+                    source.setData({
+                        type: 'Feature',
+                        properties: {},
+                        geometry: { type: 'LineString', coordinates: routeCoords }
+                    });
+                }
+            }
         });
 
         const userEl = document.createElement('div');
@@ -132,17 +153,34 @@ export function NavigationPanel({ isActive, onClose, destination }: Props) {
         return () => { mapInstance.remove(); map.current = null; userMarker.current = null; };
     }, [isActive]);
 
-    // Update route on map when routeCoords change
+    // Update route on map when routeCoords change (after OSRM fetch completes)
     useEffect(() => {
-        if (!map.current || routeCoords.length < 2) return;
+        if (!map.current || routeCoords.length < 3) return; // Need at least 3 points for a real route
 
-        const source = map.current.getSource('route') as maplibregl.GeoJSONSource;
-        if (source) {
-            source.setData({
-                type: 'Feature',
-                properties: {},
-                geometry: { type: 'LineString', coordinates: routeCoords }
-            });
+        const updateRoute = () => {
+            const source = map.current?.getSource('route') as maplibregl.GeoJSONSource;
+            if (source) {
+                source.setData({
+                    type: 'Feature',
+                    properties: {},
+                    geometry: { type: 'LineString', coordinates: routeCoords }
+                });
+
+                // Fit map to show the entire route
+                const bounds = routeCoords.reduce((bounds, coord) => {
+                    return bounds.extend(coord as [number, number]);
+                }, new maplibregl.LngLatBounds(routeCoords[0], routeCoords[0]));
+
+                map.current?.fitBounds(bounds, { padding: 60, pitch: 60, bearing: 30 });
+            }
+        };
+
+        // If map is already loaded, update immediately
+        if (map.current.isStyleLoaded()) {
+            updateRoute();
+        } else {
+            // Wait for map to load
+            map.current.on('load', updateRoute);
         }
     }, [routeCoords]);
 

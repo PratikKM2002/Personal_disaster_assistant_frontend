@@ -19,7 +19,7 @@ const WEATHER_DATA: WeatherData = {
     icon: '⛅',
     humidity: 45,
     windSpeed: 12,
-    aqi: 180,
+    aqi: 10,
     aqiLabel: 'Unhealthy',
     forecast: [
         { day: 'Today', high: 75, low: 58, icon: '⛅' },

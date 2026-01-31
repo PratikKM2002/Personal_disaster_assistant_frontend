@@ -2,9 +2,16 @@ import { useState } from 'react';
 import { X, Bell, ChevronRight, Filter, MapPin, Clock } from 'lucide-react';
 import clsx from 'clsx';
 
+interface NavigationDestination {
+    coordinates: [number, number];
+    name: string;
+    icon: string;
+}
+
 interface Props {
     isOpen: boolean;
     onClose: () => void;
+    onNavigate?: (dest: NavigationDestination) => void;
 }
 
 type AlertSeverity = 'critical' | 'warning' | 'advisory';
@@ -21,6 +28,7 @@ interface Alert {
     isRead: boolean;
     actionLabel?: string;
     actionIcon?: string;
+    actionDestination?: NavigationDestination;
 }
 
 const ALERTS: Alert[] = [
@@ -35,6 +43,11 @@ const ALERTS: Alert[] = [
         isRead: false,
         actionLabel: 'Navigate to Shelter',
         actionIcon: '🧭',
+        actionDestination: {
+            coordinates: [-122.4010, 37.7845],
+            name: 'Moscone Center Emergency Shelter',
+            icon: '🏛️'
+        }
     },
     {
         id: '2',
@@ -96,7 +109,7 @@ const CATEGORIES = [
     { id: 'community', label: 'Community', icon: '👥' },
 ];
 
-export function AlertsPage({ isOpen, onClose }: Props) {
+export function AlertsPage({ isOpen, onClose, onNavigate }: Props) {
     const [selectedCategory, setSelectedCategory] = useState<AlertCategory>('all');
     const [alerts, setAlerts] = useState(ALERTS);
 
@@ -236,7 +249,16 @@ export function AlertsPage({ isOpen, onClose }: Props) {
                                         </span>
                                     </div>
                                     {alert.actionLabel && (
-                                        <button className="mt-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-medium text-white flex items-center gap-1.5">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (alert.actionDestination && onNavigate) {
+                                                    onNavigate(alert.actionDestination);
+                                                    onClose();
+                                                }
+                                            }}
+                                            className="mt-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-medium text-white flex items-center gap-1.5"
+                                        >
                                             {alert.actionIcon && <span>{alert.actionIcon}</span>}
                                             {alert.actionLabel}
                                             <ChevronRight size={12} />
