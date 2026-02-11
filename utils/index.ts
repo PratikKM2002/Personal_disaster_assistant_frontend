@@ -1,5 +1,5 @@
 // Utility functions for Guardian AI
-import { Linking, Platform } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
 
 /**
  * Open Google Maps for turn-by-turn navigation
@@ -46,18 +46,42 @@ export const openGoogleMapsNavigation = async (
 /**
  * Make a phone call
  */
-export const makePhoneCall = (phoneNumber: string) => {
+export const makePhoneCall = async (phoneNumber: string) => {
     const number = phoneNumber.replace(/[^\d+]/g, '');
-    Linking.openURL(`tel:${number}`);
+    const url = `tel:${number}`;
+    try {
+        const canOpen = await Linking.canOpenURL(url);
+        if (canOpen) {
+            await Linking.openURL(url);
+        } else {
+            Alert.alert('Unable to Call', `Cannot open phone dialer for ${phoneNumber}`);
+        }
+    } catch (error) {
+        console.error('Phone call error:', error);
+        Alert.alert('Call Failed', 'Unable to make the phone call.');
+    }
 };
 
 /**
  * Send SMS
  */
-export const sendSMS = (phoneNumber: string, body?: string) => {
+export const sendSMS = async (phoneNumber: string, body?: string) => {
     const number = phoneNumber.replace(/[^\d+]/g, '');
-    const url = body ? `sms:${number}?body=${encodeURIComponent(body)}` : `sms:${number}`;
-    Linking.openURL(url);
+    const separator = Platform.OS === 'ios' ? '&' : '?';
+    const url = body
+        ? `sms:${number}${separator}body=${encodeURIComponent(body)}`
+        : `sms:${number}`;
+    try {
+        const canOpen = await Linking.canOpenURL(url);
+        if (canOpen) {
+            await Linking.openURL(url);
+        } else {
+            Alert.alert('Unable to Send SMS', `Cannot open messaging for ${phoneNumber}`);
+        }
+    } catch (error) {
+        console.error('SMS error:', error);
+        Alert.alert('SMS Failed', 'Unable to open the messaging app.');
+    }
 };
 
 /**

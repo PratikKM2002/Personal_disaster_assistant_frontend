@@ -41,6 +41,7 @@ export default function MapScreen() {
     const [userLocation, setUserLocation] = useState(MOCK_USER_LOCATION);
     const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
     const [simulatedFamily, setSimulatedFamily] = useState(MOCK_FAMILY);
+    const [simulatedHazards, setSimulatedHazards] = useState(DUMMY_HAZARDS);
 
     // Generate random family positions near the user
     const generateFamilyLocations = (center: { lat: number; lng: number }) => {
@@ -55,6 +56,21 @@ export default function MapScreen() {
                     center.lng + lngOffset,  // longitude
                     center.lat + latOffset,  // latitude
                 ] as [number, number],
+            };
+        });
+    };
+
+    // Generate random hazard positions near the user
+    const generateHazardLocations = (center: { lat: number; lng: number }) => {
+        return DUMMY_HAZARDS.map((hazard) => {
+            const latOffset = (Math.random() - 0.5) * 0.06;   // ~3km spread
+            const lngOffset = (Math.random() - 0.5) * 0.06;
+            return {
+                ...hazard,
+                location: {
+                    lat: center.lat + latOffset,
+                    lng: center.lng + lngOffset,
+                },
             };
         });
     };
@@ -91,6 +107,7 @@ export default function MapScreen() {
                 };
                 setUserLocation(loc);
                 setSimulatedFamily(generateFamilyLocations(loc));
+                setSimulatedHazards(generateHazardLocations(loc));
 
                 // Start watching position for real-time updates
                 locationSubscription = await Location.watchPositionAsync(
@@ -122,12 +139,13 @@ export default function MapScreen() {
         };
     }, []);
 
-    // Periodically shuffle family member positions (simulate movement)
+    // Periodically shuffle family & hazard positions (simulate movement)
     useEffect(() => {
         if (locationPermission !== true) return;
 
         const interval = setInterval(() => {
             setSimulatedFamily(generateFamilyLocations(userLocation));
+            setSimulatedHazards(generateHazardLocations(userLocation));
         }, 15000); // every 15 seconds
 
         return () => clearInterval(interval);
@@ -174,7 +192,7 @@ export default function MapScreen() {
                     userLocation={userLocation}
                     resources={filteredResources}
                     categoryColors={CATEGORY_COLORS}
-                    hazards={DUMMY_HAZARDS}
+                    hazards={simulatedHazards}
                     familyMembers={simulatedFamily}
                     isLiveLocation={locationPermission === true}
                 />
