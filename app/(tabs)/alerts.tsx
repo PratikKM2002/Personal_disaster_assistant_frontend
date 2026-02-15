@@ -1,15 +1,18 @@
 import { AppColors, BorderRadius } from '@/constants/Colors';
-import { MOCK_ALERTS } from '@/constants/Data';
-import { formatTimeAgo, openGoogleMapsNavigation } from '@/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { BackendAlert, getAlerts } from '@/services/api';
+import { Alert as AlertType } from '@/types';
+import { formatTimeAgo } from '@/utils';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
     SafeAreaView,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 
 type FilterType = 'all' | 'critical' | 'warning' | 'advisory' | 'info';
@@ -22,8 +25,50 @@ const FILTERS = [
 ];
 
 export default function AlertsScreen() {
+    const { isAuthenticated } = useAuth();
     const [filter, setFilter] = useState<FilterType>('all');
-    const [alerts, setAlerts] = useState(MOCK_ALERTS);
+    const [alerts, setAlerts] = useState<AlertType[]>([]);
+    const [loading, setLoading] = useState(false);
+
+    // Fetch real alerts from backend if authenticated
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        let cancelled = false;
+        setLoading(true);
+
+        getAlerts()
+            .then((backendAlerts: BackendAlert[]) => {
+                if (cancelled) return;
+                if (backendAlerts.length > 0) {
+                    const mapped: AlertType[] = backendAlerts.map((a) => ({
+                        id: String(a.id),
+                        type: 'warning' as const,
+                        title: a.message.substring(0, 60) + (a.message.length > 60 ? '...' : ''),
+                        description: a.message,
+                        category: 'Earthquake',
+                        timestamp: new Date(a.created_at),
+                        actionDestination: (a.hazard_lat && a.hazard_lon) ? {
+                            coordinates: [a.hazard_lon, a.hazard_lat],
+                            name: a.hazard_title || 'Hazard Location',
+                            icon: '⚠️'
+                        } : undefined,
+                        isRead: false,
+                    }));
+                    setAlerts(mapped);
+                } else {
+                    setAlerts([]);
+                }
+            })
+            .catch((err) => {
+                console.log('Failed to fetch alerts:', err);
+                setAlerts([]);
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+
+        return () => { cancelled = true; };
+    }, [isAuthenticated]);
 
     const filteredAlerts = alerts.filter(
         a => filter === 'all' || a.type === filter
@@ -68,12 +113,19 @@ export default function AlertsScreen() {
         }
     };
 
-    const handleNavigate = (alert: typeof MOCK_ALERTS[0]) => {
+    const router = useRouter();
+
+    const handleNavigate = (alert: AlertType) => {
+        // If alert has specific hazard location from backend
         if (alert.actionDestination) {
-            openGoogleMapsNavigation({
-                lat: alert.actionDestination.coordinates[1],
-                lng: alert.actionDestination.coordinates[0],
-                name: alert.actionDestination.name,
+            // Navigate to Map tab with params
+            router.push({
+                pathname: '/(tabs)/map',
+                params: {
+                    lat: alert.actionDestination.coordinates[1],
+                    lng: alert.actionDestination.coordinates[0],
+                    hazardTitle: alert.title,
+                }
             });
         }
     };
@@ -135,7 +187,10 @@ export default function AlertsScreen() {
                                 },
                                 !alert.isRead && styles.alertUnread
                             ]}
-                            onPress={() => markAsRead(alert.id)}
+                            onPress={() => {
+                                markAsRead(alert.id);
+                                handleNavigate(alert);
+                            }}
                         >
                             <View style={styles.alertHeader}>
                                 <View style={[styles.alertIconContainer, { backgroundColor: severity.iconBg }]}>

@@ -1,3 +1,5 @@
+import { tokenCache } from '@/utils/cache';
+import { ClerkProvider } from '@clerk/clerk-expo';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
@@ -6,6 +8,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
+import { AuthProvider } from '../contexts/AuthContext';
 
 export {
   ErrorBoundary
@@ -17,6 +20,8 @@ export const unstable_settings = {
 
 // Prevent splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
+
+const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
 
 // Custom dark theme for Guardian AI
 const GuardianTheme = {
@@ -53,66 +58,77 @@ export default function RootLayout() {
   }
 
   return (
-    <ThemeProvider value={GuardianTheme}>
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: '#0d0d0d' },
-          animation: 'slide_from_right',
-        }}
-      >
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="family"
-          options={{
-            presentation: 'modal',
-            animation: 'slide_from_bottom',
-          }}
-        />
-        <Stack.Screen
-          name="kit"
-          options={{
-            presentation: 'modal',
-            animation: 'slide_from_bottom',
-          }}
-        />
-        <Stack.Screen
-          name="documents"
-          options={{
-            presentation: 'modal',
-            animation: 'slide_from_bottom',
-          }}
-        />
-        <Stack.Screen
-          name="neighbors"
-          options={{
-            presentation: 'modal',
-            animation: 'slide_from_bottom',
-          }}
-        />
-        <Stack.Screen
-          name="resources"
-          options={{
-            presentation: 'modal',
-            animation: 'slide_from_bottom',
-          }}
-        />
-        <Stack.Screen
-          name="chat"
-          options={{
-            presentation: 'modal',
-            animation: 'slide_from_bottom',
-          }}
-        />
-        <Stack.Screen
-          name="navigation"
-          options={{
-            presentation: 'fullScreenModal',
-            animation: 'fade',
-          }}
-        />
-      </Stack>
-    </ThemeProvider>
+    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} tokenCache={tokenCache}>
+      <AuthProvider>
+        <ThemeProvider value={GuardianTheme}>
+          <StatusBar style="light" />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: '#0d0d0d' },
+              animation: 'slide_from_right',
+            }}
+          >
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="auth"
+              options={{
+                presentation: 'fullScreenModal',
+                animation: 'fade',
+              }}
+            />
+            <Stack.Screen
+              name="family"
+              options={{
+                presentation: 'modal',
+                animation: 'slide_from_bottom',
+              }}
+            />
+            <Stack.Screen
+              name="kit"
+              options={{
+                presentation: 'modal',
+                animation: 'slide_from_bottom',
+              }}
+            />
+            <Stack.Screen
+              name="documents"
+              options={{
+                presentation: 'modal',
+                animation: 'slide_from_bottom',
+              }}
+            />
+            <Stack.Screen
+              name="neighbors"
+              options={{
+                presentation: 'modal',
+                animation: 'slide_from_bottom',
+              }}
+            />
+            <Stack.Screen
+              name="resources"
+              options={{
+                presentation: 'modal',
+                animation: 'slide_from_bottom',
+              }}
+            />
+            <Stack.Screen
+              name="chat"
+              options={{
+                presentation: 'modal',
+                animation: 'slide_from_bottom',
+              }}
+            />
+            <Stack.Screen
+              name="navigation"
+              options={{
+                presentation: 'fullScreenModal',
+                animation: 'fade',
+              }}
+            />
+          </Stack>
+        </ThemeProvider>
+      </AuthProvider>
+    </ClerkProvider>
   );
 }

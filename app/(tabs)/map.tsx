@@ -1,9 +1,11 @@
 import NativeMap from '@/components/NativeMap';
 import { AppColors, BorderRadius } from '@/constants/Colors';
-import { DUMMY_HAZARDS, MOCK_FAMILY, MOCK_RESOURCES, MOCK_USER_LOCATION } from '@/constants/Data';
-import { openGoogleMapsNavigation } from '@/utils';
+import { MOCK_USER_LOCATION } from '@/constants/Data';
+import { BackendHazard, BackendShelter, getFamilyMembers, getOverview } from '@/services/api';
+import { Hazard, Resource } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     Alert,
@@ -38,42 +40,26 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export default function MapScreen() {
     const [selectedCategory, setSelectedCategory] = useState<CategoryType>('all');
-    const [userLocation, setUserLocation] = useState(MOCK_USER_LOCATION);
+    const [userLocation, setUserLocation] = useState<Location.LocationObjectCoords | null>(null);
     const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
-    const [simulatedFamily, setSimulatedFamily] = useState(MOCK_FAMILY);
-    const [simulatedHazards, setSimulatedHazards] = useState(DUMMY_HAZARDS);
+    const [familyMembers, setFamilyMembers] = useState<any[]>([]);
+    const [hazards, setHazards] = useState<Hazard[]>([]);
+    const [backendResources, setBackendResources] = useState<Resource[]>([]);
+    const [dataLoaded, setDataLoaded] = useState(false);
 
-    // Generate random family positions near the user
-    const generateFamilyLocations = (center: { lat: number; lng: number }) => {
-        return MOCK_FAMILY.map((member) => {
-            if (!member.coordinates) return member;
-            // Random offset: ~0.5 to 3 km in each direction
-            const latOffset = (Math.random() - 0.5) * 0.04;   // ~2km spread
-            const lngOffset = (Math.random() - 0.5) * 0.04;
-            return {
-                ...member,
-                coordinates: [
-                    center.lng + lngOffset,  // longitude
-                    center.lat + latOffset,  // latitude
-                ] as [number, number],
-            };
-        });
-    };
+    // Handle navigation params (e.g. from Alerts)
+    const params = useLocalSearchParams<{ lat: string; lng: string; hazardTitle: string }>();
+    const [focusLocation, setFocusLocation] = useState<{ lat: number; lng: number } | null>(null);
 
-    // Generate random hazard positions near the user
-    const generateHazardLocations = (center: { lat: number; lng: number }) => {
-        return DUMMY_HAZARDS.map((hazard) => {
-            const latOffset = (Math.random() - 0.5) * 0.06;   // ~3km spread
-            const lngOffset = (Math.random() - 0.5) * 0.06;
-            return {
-                ...hazard,
-                location: {
-                    lat: center.lat + latOffset,
-                    lng: center.lng + lngOffset,
-                },
-            };
-        });
-    };
+    useEffect(() => {
+        if (params.lat && params.lng) {
+            const lat = Number(params.lat);
+            const lng = Number(params.lng);
+            if (!isNaN(lat) && !isNaN(lng)) {
+                setFocusLocation({ lat, lng });
+            }
+        }
+    }, [params.lat, params.lng]);
 
     // Request location permission and start tracking
     useEffect(() => {
@@ -88,10 +74,21 @@ export default function MapScreen() {
                     if (Platform.OS !== 'web') {
                         Alert.alert(
                             'Location Permission',
-                            'Location access was denied. Showing default location. You can enable it in Settings.',
+                            'Location access was denied. Showing available data. You can enable it in Settings.',
                             [{ text: 'OK' }]
                         );
                     }
+                    // Fallback to a default location if needed, or just don't fetch location-based data
+                    // For now, let's just default to SF if denied so the map isn't blank
+                    setUserLocation({
+                        latitude: MOCK_USER_LOCATION.lat,
+                        longitude: MOCK_USER_LOCATION.lng,
+                        altitude: 0,
+                        accuracy: 0,
+                        altitudeAccuracy: 0,
+                        heading: 0,
+                        speed: 0
+                    });
                     return;
                 }
 
@@ -101,13 +98,7 @@ export default function MapScreen() {
                 const currentLocation = await Location.getCurrentPositionAsync({
                     accuracy: Location.Accuracy.Balanced,
                 });
-                const loc = {
-                    lat: currentLocation.coords.latitude,
-                    lng: currentLocation.coords.longitude,
-                };
-                setUserLocation(loc);
-                setSimulatedFamily(generateFamilyLocations(loc));
-                setSimulatedHazards(generateHazardLocations(loc));
+                setUserLocation(currentLocation.coords);
 
                 // Start watching position for real-time updates
                 locationSubscription = await Location.watchPositionAsync(
@@ -117,10 +108,7 @@ export default function MapScreen() {
                         distanceInterval: 10,     // Or when moved 10 meters
                     },
                     (newLocation) => {
-                        setUserLocation({
-                            lat: newLocation.coords.latitude,
-                            lng: newLocation.coords.longitude,
-                        });
+                        setUserLocation(newLocation.coords);
                     }
                 );
             } catch (error) {
@@ -139,22 +127,129 @@ export default function MapScreen() {
         };
     }, []);
 
-    // Periodically shuffle family & hazard positions (simulate movement)
+    // Poll for Family Members & Environment Data
     useEffect(() => {
-        if (locationPermission !== true) return;
+        const fetchData = async () => {
+            if (!userLocation) return;
 
-        const interval = setInterval(() => {
-            setSimulatedFamily(generateFamilyLocations(userLocation));
-            setSimulatedHazards(generateHazardLocations(userLocation));
-        }, 15000); // every 15 seconds
+            try {
+                // 1. Fetch Family Members
+                try {
+                    const familyData = await getFamilyMembers();
+                    const members = familyData.members.map(m => ({
+                        id: String(m.id),
+                        name: m.name,
+                        status: m.safety_status || 'unknown',
+                        location: 'Unknown', // You could reverse geocode here if you had a helper
+                        lastUpdate: m.last_location_update ? new Date(m.last_location_update).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Unknown',
+                        coordinates: (m.last_lat && m.last_lon) ? [m.last_lon, m.last_lat] : undefined
+                    }));
+                    setFamilyMembers(members as any);
+                } catch (e) {
+                    console.log('Family fetch failed (maybe not logged in):', e);
+                }
 
+                // 2. Fetch Overview (Hazards + Shelters)
+                const overview = await getOverview(userLocation.latitude, userLocation.longitude, 10);
+
+                // Process Hazards
+                if (overview.hazards && overview.hazards.length > 0) {
+                    const mappedHazards: Hazard[] = overview.hazards.map((h: BackendHazard) => {
+                        const mag = h.attributes?.mag || 0;
+                        const severity = mag >= 6 ? 'critical' : mag >= 4.5 ? 'high' : 'moderate';
+                        const place = h.attributes?.place || `${h.dist_km?.toFixed(0)}km away`;
+                        return {
+                            id: `bh-${h.id}`,
+                            type: 'earthquake' as const,
+                            title: `Earthquake M${mag.toFixed(1)} — ${place}`,
+                            severity,
+                            zone: `${h.dist_km?.toFixed(0)}km`,
+                            location: { lat: h.lat, lng: h.lon },
+                            description: `Magnitude ${mag.toFixed(1)} earthquake detected at ${place}. Source: ${h.source}.`,
+                            action: severity === 'critical' ? 'Evacuate area immediately' : 'Drop, Cover, Hold On',
+                            evacuationRoute: [],
+                            shelters: [],
+                        };
+                    });
+                    setHazards(mappedHazards);
+                } else {
+                    setHazards([]);
+                }
+
+                // Process Shelters (Resources)
+                if (overview.shelters?.items && overview.shelters.items.length > 0) {
+                    const mappedShelters: Resource[] = overview.shelters.items.map((s: BackendShelter) => {
+                        let category: 'medical' | 'shelter' | 'emergency' | 'supplies' = 'shelter';
+                        let typeDisplay = 'Emergency Shelter';
+
+                        const rawType = s.type?.toLowerCase() || 'shelter';
+
+                        if (rawType === 'hospital' || rawType === 'clinic') {
+                            category = 'medical';
+                            typeDisplay = rawType.charAt(0).toUpperCase() + rawType.slice(1);
+                        } else if (rawType === 'fire_station' || rawType === 'police' || rawType === 'ambulance') {
+                            category = 'emergency';
+                            typeDisplay = rawType === 'fire_station' ? 'Fire Station' : rawType.charAt(0).toUpperCase() + rawType.slice(1);
+                        } else if (rawType === 'supply' || rawType === 'pharmacy' || rawType === 'supermarket') {
+                            category = 'supplies';
+                            typeDisplay = rawType === 'supply' ? 'Supplies' : rawType.charAt(0).toUpperCase() + rawType.slice(1);
+                        } else {
+                            // Default to shelter
+                            category = 'shelter';
+                            typeDisplay = 'Emergency Shelter';
+                        }
+
+                        return {
+                            id: `bs-${s.id}`,
+                            name: s.name,
+                            type: typeDisplay,
+                            category: category,
+                            distance: s.dist_km != null ? `${s.dist_km.toFixed(1)} km` : 'N/A',
+                            address: s.address || 'Address not available',
+                            phone: s.phone || undefined,
+                            hours: 'Open 24/7',
+                            status: (s.status === 'open' ? 'open' : s.status === 'closed' ? 'closed' : 'limited') as Resource['status'],
+                            capacity: s.capacity ? `${s.capacity} Beds` : undefined,
+                            icon: category === 'medical' ? '🏥' :
+                                category === 'emergency' ? '🚒' :
+                                    category === 'supplies' ? '📦' : '🏠',
+                            coordinates: [s.lon, s.lat] as [number, number],
+                            inHazardZone: false,
+                        };
+                    });
+                    setBackendResources(mappedShelters);
+                } else {
+                    setBackendResources([]);
+                }
+
+                setDataLoaded(true);
+
+            } catch (err) {
+                console.error('Error fetching dashboard data:', err);
+            }
+        };
+
+        // Initial fetch
+        fetchData();
+
+        // Polling interval (15 seconds for family updates)
+        const interval = setInterval(fetchData, 15000);
         return () => clearInterval(interval);
-    }, [locationPermission, userLocation]);
 
-    const filteredResources = MOCK_RESOURCES.filter(
+    }, [userLocation]);
+
+    const filteredResources = backendResources.filter(
         r => selectedCategory === 'all' || r.category === selectedCategory
     );
 
+    const getIconForResource = (type: string) => {
+        switch (type) {
+            case 'hospital': return 'medkit';
+            case 'fire_station': return 'flame';
+            case 'shelter': return 'home';
+            default: return 'location'; // default fallback
+        }
+    };
     const getStatusColor = (status: string) => {
         switch (status) {
             case 'open': return '#22c55e';
@@ -164,11 +259,14 @@ export default function MapScreen() {
         }
     };
 
-    const handleNavigate = (resource: typeof MOCK_RESOURCES[0]) => {
-        openGoogleMapsNavigation({
-            lat: resource.coordinates[1],
-            lng: resource.coordinates[0],
-            name: resource.name,
+    const handleNavigate = (resource: Resource) => {
+        router.push({
+            pathname: '/navigation',
+            params: {
+                destLat: resource.coordinates[1].toString(),
+                destLon: resource.coordinates[0].toString(),
+                destName: resource.name,
+            }
         });
     };
 
@@ -189,12 +287,13 @@ export default function MapScreen() {
             {/* Map */}
             <View style={styles.mapContainer}>
                 <NativeMap
-                    userLocation={userLocation}
+                    userLocation={userLocation ? { lat: userLocation.latitude, lng: userLocation.longitude } : MOCK_USER_LOCATION}
                     resources={filteredResources}
                     categoryColors={CATEGORY_COLORS}
-                    hazards={simulatedHazards}
-                    familyMembers={simulatedFamily}
+                    hazards={hazards}
+                    familyMembers={familyMembers}
                     isLiveLocation={locationPermission === true}
+                    focusLocation={focusLocation}
                 />
                 {/* Hazard Zone Legend */}
                 <View style={styles.legend}>
@@ -302,7 +401,7 @@ export default function MapScreen() {
                     </View>
                 ))}
             </ScrollView>
-        </SafeAreaView>
+        </SafeAreaView >
     );
 }
 

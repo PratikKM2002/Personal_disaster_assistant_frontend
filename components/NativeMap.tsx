@@ -1,6 +1,8 @@
+import { AppColors } from '@/constants/Colors';
+import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import MapView, { Circle, Marker } from 'react-native-maps';
+import MapView, { Circle, Marker, Polyline } from 'react-native-maps';
 
 type ResourceMarker = {
     id: string;
@@ -36,6 +38,11 @@ type NativeMapProps = {
     hazards?: HazardZone[];
     familyMembers?: FamilyMarker[];
     isLiveLocation?: boolean;
+    focusLocation?: { lat: number; lng: number } | null;
+    routeGeometry?: string; // JSON string of GeoJSON LineString
+    pitch?: number;
+    bearing?: number;
+    destination?: { lat: number; lng: number; name?: string };
 };
 
 const SEVERITY_COLORS: Record<string, { fill: string; stroke: string }> = {
@@ -59,12 +66,36 @@ const FAMILY_STATUS_COLORS: Record<string, string> = {
     unknown: '#6b7280',
 };
 
-export default function NativeMap({ userLocation, resources, categoryColors, hazards = [], familyMembers = [], isLiveLocation = false }: NativeMapProps) {
+const getIconForResource = (type: string | undefined) => {
+    switch (type) {
+        case 'hospital': return 'medkit';
+        case 'fire_station': return 'flame';
+        case 'shelter': return 'home';
+        default: return 'location';
+    }
+};
+
+export default function NativeMap({
+    userLocation,
+    resources,
+    categoryColors,
+    hazards = [],
+    familyMembers = [],
+    isLiveLocation = false,
+    focusLocation,
+    routeGeometry,
+    pitch = 0,
+    bearing = 0,
+    destination
+}: NativeMapProps) {
     const mapRef = React.useRef<any>(null);
     const prevLocationRef = React.useRef(userLocation);
 
     // Animate to user's real location whenever it changes significantly
     React.useEffect(() => {
+        // Only auto-follow user if we are NOT focusing on something else
+        if (focusLocation) return;
+
         const prev = prevLocationRef.current;
         const moved = Math.abs(prev.lat - userLocation.lat) > 0.001 ||
             Math.abs(prev.lng - userLocation.lng) > 0.001;
@@ -78,7 +109,29 @@ export default function NativeMap({ userLocation, resources, categoryColors, haz
             }, 1000);
         }
         prevLocationRef.current = userLocation;
-    }, [userLocation]);
+    }, [userLocation, focusLocation]);
+
+    // Animate to focusLocation when it changes
+    React.useEffect(() => {
+        if (mapRef.current && focusLocation) {
+            mapRef.current.animateToRegion({
+                latitude: focusLocation.lat,
+                longitude: focusLocation.lng,
+                latitudeDelta: 0.05,
+                longitudeDelta: 0.05,
+            }, 1000);
+        }
+    }, [focusLocation]);
+
+    // Handle 3D changes (pitch/bearing)
+    React.useEffect(() => {
+        if (mapRef.current && (pitch !== 0 || bearing !== 0)) {
+            mapRef.current.animateCamera({
+                pitch: pitch,
+                bearing: bearing,
+            }, { duration: 1000 });
+        }
+    }, [pitch, bearing]);
 
     // "Center on me" button handler
     const centerOnUser = () => {
@@ -106,13 +159,49 @@ export default function NativeMap({ userLocation, resources, categoryColors, haz
                 showsUserLocation={true}
                 showsMyLocationButton={false}
             >
+                {/* Route Polyline */}
+                {routeGeometry && (() => {
+                    try {
+                        const geojson = JSON.parse(routeGeometry);
+                        if (geojson.type === 'LineString') {
+                            const coordinates = geojson.coordinates.map((c: any) => ({
+                                latitude: c[1],
+                                longitude: c[0],
+                            }));
+                            return (
+                                <>
+                                    {/* Outer Glow */}
+                                    <Polyline
+                                        coordinates={coordinates}
+                                        strokeColor={"rgba(59, 130, 246, 0.4)"}
+                                        strokeWidth={10}
+                                        lineJoin="round"
+                                        lineCap="round"
+                                    />
+                                    {/* Inner "Laser" Line */}
+                                    <Polyline
+                                        coordinates={coordinates}
+                                        strokeColor={AppColors.primary || "#3b82f6"}
+                                        strokeWidth={5}
+                                        lineJoin="round"
+                                        lineCap="round"
+                                    />
+                                </>
+                            );
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse route geometry', e);
+                    }
+                    return null;
+                })()}
+
                 {/* Hazard zone circles */}
                 {hazards.map((hazard) => {
                     const colors = SEVERITY_COLORS[hazard.severity] || SEVERITY_COLORS.moderate;
                     const radius = SEVERITY_RADIUS[hazard.severity] || 350;
                     return (
                         <Circle
-                            key={`hazard-${hazard.id}`}
+                            key={`hazard-zone-${hazard.id}`}
                             center={{
                                 latitude: hazard.location.lat,
                                 longitude: hazard.location.lng,
@@ -139,19 +228,38 @@ export default function NativeMap({ userLocation, resources, categoryColors, haz
                     />
                 ))}
 
-                {/* Your location marker */}
+                {/* User location pointer */}
                 <Marker
                     coordinate={{
                         latitude: userLocation.lat,
                         longitude: userLocation.lng,
                     }}
-                    title="📍 You"
-                    description={isLiveLocation ? "Live GPS location" : "Default location"}
+                    title="You"
+                    zIndex={50}
                 >
                     <View style={markerStyles.youMarker}>
                         <View style={markerStyles.youMarkerInner} />
                     </View>
                 </Marker>
+
+                {/* Destination Marker */}
+                {destination && (
+                    <Marker
+                        coordinate={{
+                            latitude: destination.lat,
+                            longitude: destination.lng,
+                        }}
+                        title={destination.name || 'Destination'}
+                        zIndex={100}
+                    >
+                        <View style={markerStyles.markerWrapper}>
+                            <View style={[markerStyles.markerContainer, { backgroundColor: '#ef4444' }]}>
+                                <Ionicons name="flag" size={18} color="white" />
+                            </View>
+                            <View style={[markerStyles.markerTip, { borderTopColor: '#ef4444' }]} />
+                        </View>
+                    </Marker>
+                )}
 
                 {/* Family member markers */}
                 {familyMembers.filter(m => m.coordinates).map((member) => (
@@ -161,8 +269,8 @@ export default function NativeMap({ userLocation, resources, categoryColors, haz
                             latitude: member.coordinates![1],
                             longitude: member.coordinates![0],
                         }}
-                        title={`👨‍👩‍👧 ${member.name}`}
-                        description={`${member.status.toUpperCase()} • ${member.location} • ${member.lastUpdate}`}
+                        title={`Family: ${member.name}`}
+                        zIndex={40}
                     >
                         <View style={[markerStyles.familyMarker, { borderColor: FAMILY_STATUS_COLORS[member.status] || '#6b7280' }]}>
                             <Text style={markerStyles.familyMarkerText}>{member.name.charAt(0)}</Text>
@@ -170,7 +278,7 @@ export default function NativeMap({ userLocation, resources, categoryColors, haz
                     </Marker>
                 ))}
 
-                {/* Resource markers */}
+                {/* General Resource markers */}
                 {resources.map((resource) => (
                     <Marker
                         key={resource.id}
@@ -179,13 +287,20 @@ export default function NativeMap({ userLocation, resources, categoryColors, haz
                             longitude: resource.coordinates[0],
                         }}
                         title={resource.name}
-                        description={`${resource.type} • ${resource.distance} • ${resource.status}`}
-                        pinColor={categoryColors[resource.category] || '#3b82f6'}
-                    />
+                        description={resource.type}
+                        zIndex={30}
+                    >
+                        <View style={markerStyles.markerWrapper}>
+                            <View style={[markerStyles.markerContainer, { backgroundColor: categoryColors?.[resource.category] || '#3b82f6' }]}>
+                                <Ionicons name={getIconForResource(resource.type) as any} size={18} color="white" />
+                            </View>
+                            <View style={[markerStyles.markerTip, { borderTopColor: categoryColors?.[resource.category] || '#3b82f6' }]} />
+                        </View>
+                    </Marker>
                 ))}
             </MapView>
 
-            {/* Locate Me Button */}
+            {/* Float actions */}
             <TouchableOpacity style={markerStyles.locateButton} onPress={centerOnUser} activeOpacity={0.8}>
                 <Text style={markerStyles.locateIcon}>📍</Text>
             </TouchableOpacity>
@@ -194,6 +309,36 @@ export default function NativeMap({ userLocation, resources, categoryColors, haz
 }
 
 const markerStyles = StyleSheet.create({
+    markerWrapper: {
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    markerContainer: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 2,
+        borderColor: 'white',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+        elevation: 10,
+    },
+    markerTip: {
+        width: 0,
+        height: 0,
+        backgroundColor: 'transparent',
+        borderStyle: 'solid',
+        borderLeftWidth: 8,
+        borderRightWidth: 8,
+        borderTopWidth: 10,
+        borderLeftColor: 'transparent',
+        borderRightColor: 'transparent',
+        marginTop: -2,
+    },
     youMarker: {
         width: 24,
         height: 24,

@@ -1,7 +1,9 @@
 import { AppColors } from '@/constants/Colors';
-import { BOT_RESPONSES, QUICK_ACTIONS } from '@/constants/Data';
+import { QUICK_ACTIONS } from '@/constants/Data';
+import * as api from '@/services/api';
 import { ChatMessage } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
+import * as ExpoLocation from 'expo-location';
 import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -29,16 +31,19 @@ export default function ChatScreen() {
     const [isTyping, setIsTyping] = useState(false);
     const scrollViewRef = useRef<ScrollView>(null);
 
-    const getBotResponse = (query: string): string => {
-        const lowerQuery = query.toLowerCase();
-        if (lowerQuery.includes('shelter')) return BOT_RESPONSES['shelter'];
-        if (lowerQuery.includes('alert')) return BOT_RESPONSES['alert'];
-        if (lowerQuery.includes('kit') || lowerQuery.includes('pack')) return BOT_RESPONSES['kit'];
-        if (lowerQuery.includes('emergency') || lowerQuery.includes('number') || lowerQuery.includes('911')) return BOT_RESPONSES['emergency'];
-        return BOT_RESPONSES['default'];
-    };
+    const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
 
-    const sendMessage = (text: string) => {
+    useEffect(() => {
+        (async () => {
+            const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+            if (status !== 'granted') return;
+
+            const loc = await ExpoLocation.getCurrentPositionAsync({});
+            setLocation(loc.coords);
+        })();
+    }, []);
+
+    const sendMessage = async (text: string) => {
         if (!text.trim()) return;
 
         // Add user message
@@ -50,20 +55,35 @@ export default function ChatScreen() {
         };
         setMessages(prev => [...prev, userMessage]);
         setInputText('');
-
-        // Simulate bot typing
         setIsTyping(true);
 
-        setTimeout(() => {
+        try {
+            // Call Backend
+            const data = await api.sendChatMessage(
+                text,
+                location?.latitude,
+                location?.longitude
+            );
+
             const botMessage: ChatMessage = {
                 id: (Date.now() + 1).toString(),
                 type: 'bot',
-                content: getBotResponse(text),
+                content: data.response,
                 timestamp: new Date(),
             };
             setMessages(prev => [...prev, botMessage]);
+        } catch (error) {
+            console.error('Chat Error:', error);
+            const errorMessage: ChatMessage = {
+                id: (Date.now() + 1).toString(),
+                type: 'bot',
+                content: "I'm having trouble connecting to the network instantly. Please try again.",
+                timestamp: new Date(),
+            };
+            setMessages(prev => [...prev, errorMessage]);
+        } finally {
             setIsTyping(false);
-        }, 1000 + Math.random() * 1000);
+        }
     };
 
     useEffect(() => {

@@ -1,7 +1,9 @@
 import { AppColors, BorderRadius } from '@/constants/Colors';
+import { useAuth } from '@/contexts/AuthContext';
+import { getOverview, OverviewResponse } from '@/services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Linking,
   Modal,
@@ -14,8 +16,36 @@ import {
 } from 'react-native';
 
 export default function HomeScreen() {
+  const { isAuthenticated } = useAuth();
   const [menuVisible, setMenuVisible] = useState(false);
   const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  // Real-time backend data
+  const [hazardCount, setHazardCount] = useState(0);
+  const [topHazard, setTopHazard] = useState('');
+  const [shelterCount, setShelterCount] = useState(0);
+  const [alertBanner, setAlertBanner] = useState('⚠️ CRITICAL: Wildfire - Evacuate Zone B NOW');
+  const [alertSubtitle, setAlertSubtitle] = useState('Tap to see all alerts • Last update: 2 minutes ago');
+
+  // Fetch overview data from backend
+  useEffect(() => {
+    getOverview(37.765, -122.42, 500)
+      .then((data: OverviewResponse) => {
+        const h = data.hazards || [];
+        const s = data.shelters?.items || [];
+        setHazardCount(h.length);
+        setShelterCount(s.length);
+        if (h.length > 0) {
+          const top = h[0];
+          const mag = top.attributes?.mag || 0;
+          const place = top.attributes?.place || 'nearby';
+          setAlertBanner(`⚠️ Earthquake M${mag.toFixed(1)} — ${place}`);
+          setAlertSubtitle(`${h.length} hazard(s) detected • ${s.length} shelter(s) available`);
+          setTopHazard(`M${mag.toFixed(1)} ${place}`);
+        }
+      })
+      .catch(() => { /* keep defaults */ });
+  }, []);
 
   const menuItems = [
     { icon: 'home', label: 'Home', route: '/' },
@@ -116,8 +146,8 @@ export default function HomeScreen() {
           style={styles.alertBanner}
           onPress={() => router.push('/alerts')}
         >
-          <Text style={styles.alertTitle}>⚠️ CRITICAL: Wildfire - Evacuate Zone B NOW</Text>
-          <Text style={styles.alertSubtitle}>Tap to see all alerts • Last update: 2 minutes ago</Text>
+          <Text style={styles.alertTitle}>{alertBanner}</Text>
+          <Text style={styles.alertSubtitle}>{alertSubtitle}</Text>
         </TouchableOpacity>
 
         {/* Weather Widget */}
@@ -137,8 +167,8 @@ export default function HomeScreen() {
             style={styles.alertsQuickAction}
             onPress={() => router.push('/alerts')}
           >
-            <Text style={styles.alertsLabel}>3 Active Alerts</Text>
-            <Text style={styles.alertsList}>Wildfire, AQI, Road Closure</Text>
+            <Text style={styles.alertsLabel}>{hazardCount > 0 ? `${hazardCount} Active Hazards` : '3 Active Alerts'}</Text>
+            <Text style={styles.alertsList}>{topHazard || 'Wildfire, AQI, Road Closure'}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.sosButton}
@@ -159,7 +189,7 @@ export default function HomeScreen() {
             <Text style={styles.mapText}>Tap to view map</Text>
           </View>
           <View style={styles.mapOverlay}>
-            <Text style={styles.mapLabel}>🔴 Active Hazard Zones</Text>
+            <Text style={styles.mapLabel}>{hazardCount > 0 ? `🔴 ${hazardCount} Active Hazard Zone(s)` : '🔴 Active Hazard Zones'}</Text>
           </View>
         </TouchableOpacity>
 
@@ -226,12 +256,12 @@ export default function HomeScreen() {
         {/* Stats */}
         <View style={styles.statsGrid}>
           <View style={[styles.statCard, { backgroundColor: 'rgba(59, 130, 246, 0.5)' }]}>
-            <Text style={styles.statValue}>30</Text>
-            <Text style={[styles.statLabel, { color: '#93c5fd' }]}>Flood Risk</Text>
+            <Text style={styles.statValue}>{hazardCount || '0'}</Text>
+            <Text style={[styles.statLabel, { color: '#93c5fd' }]}>Hazards</Text>
           </View>
           <View style={[styles.statCard, { backgroundColor: 'rgba(249, 115, 22, 0.5)' }]}>
-            <Text style={styles.statValue}>97°</Text>
-            <Text style={[styles.statLabel, { color: '#fdba74' }]}>Heat Index</Text>
+            <Text style={styles.statValue}>{shelterCount || '0'}</Text>
+            <Text style={[styles.statLabel, { color: '#fdba74' }]}>Shelters</Text>
           </View>
           <View style={[styles.statCard, { backgroundColor: 'rgba(34, 197, 94, 0.5)' }]}>
             <Text style={styles.statValue}>7/10</Text>

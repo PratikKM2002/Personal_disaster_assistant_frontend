@@ -78,6 +78,9 @@ export interface SharedResource {
     quantity?: string;
     claimed?: boolean;
     createdAt?: Date;
+    capacity?: number;
+    lastUpdated?: Date;
+    resourceType?: string; // Added this as 'resourceType' to avoid conflict with existing 'type'
 }
 
 export interface KitItem {

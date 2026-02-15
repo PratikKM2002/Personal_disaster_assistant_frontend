@@ -1,5 +1,6 @@
 import { AppColors, BorderRadius } from '@/constants/Colors';
 import { MOCK_USER } from '@/constants/Data';
+import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
@@ -14,9 +15,20 @@ import {
 } from 'react-native';
 
 export default function ProfileScreen() {
+    const { user, isAuthenticated, logout } = useAuth();
     const [notifications, setNotifications] = useState(true);
     const [locationSharing, setLocationSharing] = useState(true);
     const [emergencyAlerts, setEmergencyAlerts] = useState(true);
+
+    // Use real user data if authenticated, fall back to "User" if not (though protected route should prevent this)
+    const displayName = user?.name || 'User';
+    const displayEmail = user?.email || '';
+    const displayPhone = MOCK_USER.phone; // Backend doesn't return phone yet
+
+    const handleSignOut = async () => {
+        await logout();
+        router.replace('/auth');
+    };
 
     const SettingRow = ({
         icon,
@@ -73,12 +85,12 @@ export default function ProfileScreen() {
                 {/* User Info Card */}
                 <View style={styles.userCard}>
                     <View style={styles.avatar}>
-                        <Text style={styles.avatarText}>{MOCK_USER.name[0]}</Text>
+                        <Text style={styles.avatarText}>{displayName[0]}</Text>
                     </View>
                     <View style={styles.userInfo}>
-                        <Text style={styles.userName}>{MOCK_USER.name}</Text>
-                        <Text style={styles.userEmail}>{MOCK_USER.email}</Text>
-                        <Text style={styles.userPhone}>{MOCK_USER.phone}</Text>
+                        <Text style={styles.userName}>{displayName}</Text>
+                        <Text style={styles.userEmail}>{displayEmail}</Text>
+                        <Text style={styles.userPhone}>{displayPhone}</Text>
                     </View>
                     <TouchableOpacity style={styles.editButton}>
                         <Ionicons name="pencil" size={18} color="#3b82f6" />
@@ -195,9 +207,9 @@ export default function ProfileScreen() {
                         />
                         <SettingRow
                             icon="log-out"
-                            label="Sign Out"
-                            danger
-                            onPress={() => { }}
+                            label={isAuthenticated ? 'Sign Out' : 'Sign In'}
+                            danger={isAuthenticated}
+                            onPress={isAuthenticated ? handleSignOut : () => router.push('/auth')}
                         />
                     </View>
                 </View>

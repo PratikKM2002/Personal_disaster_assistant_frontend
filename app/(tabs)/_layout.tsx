@@ -16,7 +16,25 @@ function TabBarIcon(props: {
   );
 }
 
+import { useAuth } from '@/contexts/AuthContext';
+import { Redirect } from 'expo-router';
+import { ActivityIndicator } from 'react-native';
+
 export default function TabLayout() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0d0d0d' }}>
+        <ActivityIndicator size="large" color={AppColors.primary} />
+      </View>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Redirect href="/auth" />;
+  }
+
   return (
     <Tabs
       screenOptions={{

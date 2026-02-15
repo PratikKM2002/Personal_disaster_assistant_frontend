@@ -20,116 +20,11 @@ export const MOCK_USER: UserProfile = {
     ]
 };
 
-// Hazard Zones
-export const DUMMY_HAZARDS: Hazard[] = [
-    {
-        id: 'h1',
-        type: 'wildfire',
-        title: 'Wildfire Spreading (Mission District)',
-        severity: 'critical',
-        zone: 'Zone B',
-        location: { lat: 37.76, lng: -122.42 },
-        description: 'Wildfire rapidly approaching residential areas. High wind speeds aiding spread.',
-        action: 'Evacuate Zone B IMMEDIATELY',
-        evacuationRoute: [
-            { lat: 37.76, lng: -122.42 },
-            { lat: 37.765, lng: -122.415 },
-            { lat: 37.77, lng: -122.41 },
-            { lat: 37.78, lng: -122.40 }
-        ],
-        shelters: [
-            { name: 'Moscone Center Shelter', location: { lat: 37.78, lng: -122.40 }, type: 'shelter' },
-            { name: 'SF General Hospital', location: { lat: 37.756, lng: -122.405 }, type: 'hospital' }
-        ]
-    },
-    {
-        id: 'h2',
-        type: 'flood',
-        title: 'Flash Flood Warning (Low-lying Areas)',
-        severity: 'high',
-        zone: 'Zone A',
-        location: { lat: 37.75, lng: -122.41 },
-        description: 'Heavy rainfall causing rapid water rise in low-lying intersections.',
-        action: 'Move to higher ground. Avoid underpasses.',
-        evacuationRoute: [
-            { lat: 37.75, lng: -122.41 },
-            { lat: 37.755, lng: -122.43 },
-        ],
-        shelters: [
-            { name: 'Twin Peaks Community Center', location: { lat: 37.755, lng: -122.44 }, type: 'shelter' }
-        ]
-    },
-    {
-        id: 'h3',
-        type: 'earthquake',
-        title: 'Seismic Alert (Magnitude 5.2)',
-        severity: 'moderate',
-        zone: 'Citywide',
-        location: { lat: 37.7749, lng: -122.4194 },
-        description: 'Moderate earthquake detected. Aftershocks possible.',
-        action: 'Drop, Cover, and Hold On.',
-        evacuationRoute: [],
-        shelters: []
-    }
-];
+// Hazard Zones - Removed (Fetching from Backend)
+export const DUMMY_HAZARDS: Hazard[] = [];
 
-// Family Members
-export const MOCK_FAMILY: FamilyMember[] = [
-    {
-        id: '1',
-        name: 'Sarah',
-        status: 'safe',
-        lastUpdate: '2 min ago',
-        location: 'Home',
-        phone: '+1 555-1234',
-        coordinates: [-122.4194, 37.7749],
-        batteryLevel: 85,
-        isOnline: true
-    },
-    {
-        id: '2',
-        name: 'Mom',
-        status: 'safe',
-        lastUpdate: '15 min ago',
-        location: 'Downtown',
-        phone: '+1 555-5678',
-        coordinates: [-122.4094, 37.7849],
-        batteryLevel: 42,
-        isOnline: true
-    },
-    {
-        id: '3',
-        name: 'Dad',
-        status: 'pending',
-        lastUpdate: '45 min ago',
-        location: 'Last seen: Office',
-        phone: '+1 555-9012',
-        coordinates: [-122.3994, 37.7649],
-        batteryLevel: 15,
-        isOnline: false
-    },
-    {
-        id: '4',
-        name: 'Jake',
-        status: 'unknown',
-        lastUpdate: '2 hours ago',
-        location: 'Unknown',
-        phone: '+1 555-3456',
-        batteryLevel: undefined,
-        isOnline: false
-    },
-    {
-        id: '5',
-        name: 'Emma',
-        status: 'safe',
-        lastUpdate: 'Just now',
-        location: 'School',
-        phone: '+1 555-7890',
-        coordinates: [-122.4094, 37.7949],
-        batteryLevel: 68,
-        isOnline: true
-    },
-];
+// Family Members - Removed (Fetching from Backend)
+export const MOCK_FAMILY: FamilyMember[] = [];
 
 // Neighbors
 export const MOCK_NEIGHBORS: Neighbor[] = [
@@ -185,105 +80,11 @@ export const MOCK_NEIGHBORS: Neighbor[] = [
     },
 ];
 
-// Alerts
-export const MOCK_ALERTS: Alert[] = [
-    {
-        id: '1',
-        type: 'critical',
-        title: 'Wildfire - Evacuate Zone B NOW',
-        description: 'Wildfire rapidly approaching residential areas. High wind speeds aiding spread. All residents in Zone B must evacuate immediately.',
-        action: 'Evacuate Zone B IMMEDIATELY',
-        location: 'Mission District',
-        category: 'Fire',
-        timestamp: new Date(Date.now() - 2 * 60 * 1000),
-        isRead: false,
-        actionLabel: 'Navigate to Shelter',
-        actionIcon: '🏃',
-        actionDestination: { coordinates: [-122.40, 37.78], name: 'Moscone Center', icon: '🏢' }
-    },
-    {
-        id: '2',
-        type: 'warning',
-        title: 'Air Quality Alert - Unhealthy',
-        description: 'Air quality has reached unhealthy levels due to wildfire smoke. Limit outdoor activities.',
-        location: 'San Francisco Bay Area',
-        category: 'Air Quality',
-        timestamp: new Date(Date.now() - 30 * 60 * 1000),
-        isRead: false,
-    },
-    {
-        id: '3',
-        type: 'advisory',
-        title: 'Road Closure - Highway 101',
-        description: 'Highway 101 closed between exits 434 and 438 due to emergency response operations.',
-        location: 'Highway 101',
-        category: 'Traffic',
-        timestamp: new Date(Date.now() - 45 * 60 * 1000),
-        isRead: true,
-    },
-];
+// Alerts - Removed (Fetching from Backend)
+export const MOCK_ALERTS: Alert[] = [];
 
-// Nearby Resources
-export const MOCK_RESOURCES: Resource[] = [
-    {
-        id: '1',
-        name: 'SF General Hospital',
-        type: 'Hospital',
-        category: 'medical',
-        distance: '0.8 mi',
-        address: '1001 Potrero Ave, SF',
-        phone: '(415) 206-8111',
-        hours: '24/7',
-        status: 'open',
-        icon: '🏥',
-        coordinates: [-122.405, 37.756],
-        inHazardZone: false,
-    },
-    {
-        id: '2',
-        name: 'Moscone Center Shelter',
-        type: 'Emergency Shelter',
-        category: 'shelter',
-        distance: '1.2 mi',
-        address: '747 Howard St, SF',
-        phone: '(415) 974-4000',
-        hours: 'Open during emergencies',
-        status: 'open',
-        capacity: '450/500',
-        icon: '🏢',
-        coordinates: [-122.40, 37.78],
-        inHazardZone: false,
-    },
-    {
-        id: '3',
-        name: 'Fire Station 7',
-        type: 'Fire Station',
-        category: 'emergency',
-        distance: '0.5 mi',
-        address: '2300 Folsom St, SF',
-        phone: '911',
-        hours: '24/7',
-        status: 'open',
-        icon: '🚒',
-        coordinates: [-122.414, 37.759],
-        inHazardZone: true,
-        hazardWarning: 'Located in active wildfire zone',
-    },
-    {
-        id: '4',
-        name: 'Red Cross Station',
-        type: 'Aid Station',
-        category: 'supplies',
-        distance: '0.9 mi',
-        address: '1663 Market St, SF',
-        phone: '(415) 427-8000',
-        hours: '8 AM - 8 PM',
-        status: 'limited',
-        icon: '⛑️',
-        coordinates: [-122.421, 37.773],
-        inHazardZone: false,
-    },
-];
+// Nearby Resources - Removed (Fetching from Backend)
+export const MOCK_RESOURCES: Resource[] = [];
 
 // Shared Resources
 export const MOCK_SHARED_RESOURCES: SharedResource[] = [
