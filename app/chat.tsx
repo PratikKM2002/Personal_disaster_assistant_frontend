@@ -203,6 +203,9 @@ export default function ChatScreen() {
                         onChangeText={setInputText}
                         multiline
                         maxLength={500}
+                        returnKeyType="send"
+                        onSubmitEditing={() => sendMessage(inputText)}
+                        blurOnSubmit={false}
                     />
                     <TouchableOpacity
                         style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}

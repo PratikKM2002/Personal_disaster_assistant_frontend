@@ -15,7 +15,12 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "This app uses your location to share your safety status with your family.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app tracks your location in the background to keep your family updated on your safety.",
+        "NSLocationAlwaysUsageDescription": "This app tracks your location in the background to keep your family updated on your safety."
+      }
     },
     "android": {
       "adaptiveIcon": {

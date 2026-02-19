@@ -46,12 +46,49 @@ export class ApiError extends Error {
     }
 }
 
+// --- Profile ---
+
+export interface EmergencyContact {
+    id: number;
+    name: string;
+    phone: string;
+    relationship: string | null;
+    is_primary: boolean;
+}
+
+export interface UserProfile {
+    id: number;
+    name: string;
+    email: string;
+    phone: string | null;
+    blood_type: string | null;
+    public_tag: string | null;
+    safety_status: string | null;
+    contacts: EmergencyContact[];
+}
+
+export async function getProfile(): Promise<UserProfile> {
+    return request<UserProfile>('/user/me');
+}
+
+export async function updateProfile(data: { phone?: string; blood_type?: string }): Promise<{ success: boolean }> {
+    return request('/user/profile', { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export async function addEmergencyContact(contact: { name: string; phone: string; relationship?: string; is_primary?: boolean }): Promise<EmergencyContact> {
+    return request('/user/contacts', { method: 'POST', body: JSON.stringify(contact) });
+}
+
+export async function deleteEmergencyContact(id: number): Promise<{ success: boolean }> {
+    return request(`/user/contacts/${id}`, { method: 'DELETE' });
+}
+
 // --- Hazards ---
 
 export interface BackendHazard {
     id: number;
     type: string;
-    severity: string;
+    severity: number;
     occurred_at: string;
     lat: number;
     lon: number;
@@ -59,6 +96,7 @@ export interface BackendHazard {
     source_event_id: string;
     attributes: Record<string, any>;
     dist_km: number;
+    message?: string;
 }
 
 export async function getHazards(
@@ -98,12 +136,46 @@ export async function getShelters(
     );
 }
 
+export async function getFloodRisk(lat: number, lon: number): Promise<any> {
+    return request<any>(`/hazards/flood?lat=${lat}&lon=${lon}`, {}, true);
+}
+
+// --- Weather ---
+
+export interface WeatherData {
+    temp: number;
+    condition_code: number;
+    aqi: number;
+    params: {
+        temp_unit: string;
+        aqi_unit: string;
+    };
+    forecast: {
+        date: string;
+        max_temp: number;
+        min_temp: number;
+        rain_prob: number;
+        code: number;
+    }[];
+}
+
 // --- Overview (hazards + shelters combined) ---
 
 export interface OverviewResponse {
     location: { lat: number; lon: number; radius_km: number; city: string | null };
+    weather?: WeatherData;
     hazards: BackendHazard[];
-    shelters: { items: BackendShelter[]; strategy: string };
+    shelters?: {
+        items: any[];
+        strategy: string;
+    };
+    stats?: {
+        neighbors_safe: number;
+        resources_nearby: number;
+        family_safe: number;
+        family_total: number;
+        preparedness_score: number;
+    };
 }
 
 export async function getOverview(
@@ -128,11 +200,16 @@ export interface BackendAlert {
     hazard_lat?: number;
     hazard_lon?: number;
     hazard_type?: string;
+    hazard_severity?: number;
     hazard_title?: string;
 }
 
-export async function getAlerts(): Promise<BackendAlert[]> {
-    return request<BackendAlert[]>('/alerts', {}, true);
+export async function getAlerts(lat?: number, lon?: number, radiusKm = 500): Promise<BackendAlert[]> {
+    let url = '/alerts';
+    if (lat !== undefined && lon !== undefined) {
+        url += `?lat=${lat}&lon=${lon}&radius_km=${radiusKm}`;
+    }
+    return request<BackendAlert[]>(url, {}, true);
 }
 
 // --- Places ---
@@ -169,9 +246,13 @@ export interface FamilyMember {
     phone: string | null;
     last_lat: number | null;
     last_lon: number | null;
-    safety_status: string;
+    safety_status: 'safe' | 'needs-help' | 'offering-help' | null;
     battery_level: number | null;
+
     last_location_update: string | null;
+    last_address: string | null;
+    role: 'admin' | 'member';
+    safety_message?: string;
 }
 
 export async function getFamilyMembers(): Promise<{ family_id: string | null; members: FamilyMember[] }> {
@@ -197,15 +278,26 @@ export async function leaveFamily(): Promise<{ success: boolean }> {
     }, true);
 }
 
+export async function removeFamilyMember(memberId: string): Promise<{ success: boolean }> {
+    return request<{ success: boolean }>('/family/remove', {
+        method: 'POST',
+        body: JSON.stringify({ memberId }),
+    }, true);
+}
+
 export async function updateStatus(
     lat: number,
     lon: number,
-    status: string = 'safe',
-    battery_level?: number
+    status?: 'safe' | 'danger' | 'pending' | 'needs-help' | 'offering-help',
+    batteryLevel?: number,
+    message?: string
 ): Promise<{ success: boolean }> {
+    const body: any = { lat, lon, battery_level: batteryLevel, message };
+    if (status) body.status = status;
+
     return request<{ success: boolean }>('/user/status', {
         method: 'POST',
-        body: JSON.stringify({ lat, lon, status, battery_level }),
+        body: JSON.stringify(body),
     }, true);
 }
 
@@ -223,11 +315,73 @@ export async function updatePushToken(token: string): Promise<{ success: boolean
     }, true);
 }
 
+// --- Community ---
+
+export interface CommunityResource {
+    id: number;
+    user_id: number;
+    type: 'offering' | 'requesting';
+    title: string;
+    description: string;
+    status: 'active' | 'claimed' | 'completed';
+    lat: number;
+    lon: number;
+    created_at: string;
+    posted_by?: string;
+    public_tag?: string;
+    dist_km?: number;
+    distance?: string; // formatted
+    timeAgo?: string; // formatted
+}
+
+export async function getNeighbors(): Promise<any[]> {
+    return request<any[]>('/community/neighbors', {}, true);
+}
+
+export async function addNeighbor(tag: string): Promise<{ success: boolean }> {
+    return request<{ success: boolean }>('/community/neighbors/add', {
+        method: 'POST',
+        body: JSON.stringify({ tag }),
+    }, true);
+}
+
+export async function removeNeighbor(neighborId: number): Promise<{ success: boolean }> {
+    return request<{ success: boolean }>('/community/neighbors/remove', {
+        method: 'POST',
+        body: JSON.stringify({ neighborId }),
+    }, true);
+}
+
+export async function getCommunityResources(lat?: number, lon?: number, radiusKm = 50): Promise<CommunityResource[]> {
+    let url = '/community/resources';
+    if (lat !== undefined && lon !== undefined) {
+        url += `?lat=${lat}&lon=${lon}&radius_km=${radiusKm}`;
+    }
+    return request<CommunityResource[]>(url, {}, true);
+}
+
+export async function createCommunityResource(
+    type: 'offering' | 'requesting',
+    title: string,
+    description: string,
+    lat: number,
+    lon: number
+): Promise<CommunityResource> {
+    return request<CommunityResource>('/community/resources', {
+        method: 'POST',
+        body: JSON.stringify({ type, title, description, lat, lon }),
+    }, true);
+}
+
+export async function getUserProfile(): Promise<any> {
+    return request<any>('/user/me', {}, true);
+}
+
 export async function sendChatMessage(message: string, lat?: number, lon?: number): Promise<{ response: string }> {
     return request<{ response: string }>('/chat', {
         method: 'POST',
         body: JSON.stringify({ message, lat, lon }),
-    }, false); // No auth required for basic chat for now, or true if we want it
+    }, false);
 }
 
 // --- Navigation ---

@@ -16,12 +16,14 @@ function TabBarIcon(props: {
   );
 }
 
+import { useAlerts } from '@/contexts/AlertsContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { Redirect } from 'expo-router';
 import { ActivityIndicator } from 'react-native';
 
 export default function TabLayout() {
   const { isAuthenticated, isLoading } = useAuth();
+  const { unreadCount } = useAlerts();
 
   if (isLoading) {
     return (
@@ -70,7 +72,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, focused }) => (
             <TabBarIcon name={focused ? 'notifications' : 'notifications-outline'} color={color} focused={focused} />
           ),
-          tabBarBadge: 3,
+          tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
           tabBarBadgeStyle: styles.badge,
         }}
       />

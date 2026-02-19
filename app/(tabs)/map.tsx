@@ -1,4 +1,5 @@
 import NativeMap from '@/components/NativeMap';
+import SafetyStatusBar from '@/components/SafetyStatusBar';
 import { AppColors, BorderRadius } from '@/constants/Colors';
 import { MOCK_USER_LOCATION } from '@/constants/Data';
 import { BackendHazard, BackendShelter, getFamilyMembers, getOverview } from '@/services/api';
@@ -46,6 +47,7 @@ export default function MapScreen() {
     const [hazards, setHazards] = useState<Hazard[]>([]);
     const [backendResources, setBackendResources] = useState<Resource[]>([]);
     const [dataLoaded, setDataLoaded] = useState(false);
+    const [isFullScreen, setIsFullScreen] = useState(false);
 
     // Handle navigation params (e.g. from Alerts)
     const params = useLocalSearchParams<{ lat: string; lng: string; hazardTitle: string }>();
@@ -121,8 +123,12 @@ export default function MapScreen() {
 
         // Cleanup subscription on unmount
         return () => {
-            if (locationSubscription) {
-                locationSubscription.remove();
+            try {
+                if (locationSubscription) {
+                    locationSubscription.remove();
+                }
+            } catch (e) {
+                // Ignore cleanup errors on web (known Expo issue)
             }
         };
     }, []);
@@ -155,18 +161,30 @@ export default function MapScreen() {
                 // Process Hazards
                 if (overview.hazards && overview.hazards.length > 0) {
                     const mappedHazards: Hazard[] = overview.hazards.map((h: BackendHazard) => {
-                        const mag = h.attributes?.mag || 0;
-                        const severity = mag >= 6 ? 'critical' : mag >= 4.5 ? 'high' : 'moderate';
+                        const mag = h.attributes?.mag;
+                        const sevNum = Number(h.severity);
+                        let severity: Hazard['severity'] = 'moderate';
+                        if (sevNum >= 0.7) severity = 'critical';
+                        else if (sevNum >= 0.4) severity = 'high';
+
+                        const type = (h.type || 'hazard').toLowerCase() as Hazard['type'];
+                        let title = h.attributes?.title || `${type.charAt(0).toUpperCase() + type.slice(1)}`;
+
+                        if (type === 'earthquake' && mag) {
+                            title = `Earthquake M${mag.toFixed(1)}`;
+                        }
+
                         const place = h.attributes?.place || `${h.dist_km?.toFixed(0)}km away`;
+
                         return {
                             id: `bh-${h.id}`,
-                            type: 'earthquake' as const,
-                            title: `Earthquake M${mag.toFixed(1)} — ${place}`,
+                            type: type,
+                            title: `${title} — ${place}`,
                             severity,
                             zone: `${h.dist_km?.toFixed(0)}km`,
                             location: { lat: h.lat, lng: h.lon },
-                            description: `Magnitude ${mag.toFixed(1)} earthquake detected at ${place}. Source: ${h.source}.`,
-                            action: severity === 'critical' ? 'Evacuate area immediately' : 'Drop, Cover, Hold On',
+                            description: h.message || h.attributes?.description || `${title} detected at ${place}. Source: ${h.source}.`,
+                            action: severity === 'critical' ? 'Evacuate area immediately' : 'Stay alert and follow local news',
                             evacuationRoute: [],
                             shelters: [],
                         };
@@ -270,22 +288,49 @@ export default function MapScreen() {
         });
     };
 
+    const findNearestHazard = () => {
+        if (hazards.length === 0) {
+            Alert.alert('Safe!', 'No active hazards detected in your vicinity.');
+            return;
+        }
+
+        // Hazards from backend already have dist_km if calculated there, 
+        // but we can also just find the min of what we have.
+        const nearest = hazards.reduce((prev, curr) => {
+            // Some hazards might not have dist_km if mock or special case, so we fallback
+            const distA = prev.location.lat && userLocation ?
+                Math.sqrt(Math.pow(prev.location.lat - userLocation.latitude, 2) + Math.pow(prev.location.lng - userLocation.longitude, 2)) : 1000;
+            const distB = curr.location.lat && userLocation ?
+                Math.sqrt(Math.pow(curr.location.lat - userLocation.latitude, 2) + Math.pow(curr.location.lng - userLocation.longitude, 2)) : 1000;
+            return distA < distB ? prev : curr;
+        });
+
+        if (nearest && nearest.location) {
+            setFocusLocation({ lat: nearest.location.lat, lng: nearest.location.lng });
+        }
+    };
+
     return (
         <SafeAreaView style={styles.container}>
-            {/* Header */}
-            <View style={styles.header}>
-                <Text style={styles.title}>Nearby Resources</Text>
-                <Text style={styles.subtitle}>
-                    {locationPermission === true
-                        ? '📍 Live location active'
-                        : locationPermission === false
-                            ? '📍 Using default location'
-                            : '📍 Getting your location...'}
-                </Text>
-            </View>
+            {/* Header - Hidden in Full Screen */}
+            {!isFullScreen && (
+                <View style={styles.header}>
+                    <Text style={styles.title}>Nearby Resources</Text>
+                    <Text style={styles.subtitle}>
+                        {locationPermission === true
+                            ? '📍 Live location active'
+                            : locationPermission === false
+                                ? '📍 Using default location'
+                                : '📍 Getting your location...'}
+                    </Text>
+                </View>
+            )}
 
             {/* Map */}
-            <View style={styles.mapContainer}>
+            <View style={[
+                styles.mapContainer,
+                isFullScreen && styles.mapContainerFullScreen
+            ]}>
                 <NativeMap
                     userLocation={userLocation ? { lat: userLocation.latitude, lng: userLocation.longitude } : MOCK_USER_LOCATION}
                     resources={filteredResources}
@@ -295,6 +340,36 @@ export default function MapScreen() {
                     isLiveLocation={locationPermission === true}
                     focusLocation={focusLocation}
                 />
+
+                {/* Overlaid Status Bar */}
+                <View style={styles.statusOverlay}>
+                    <SafetyStatusBar
+                        hazards={hazards}
+                        userLocation={userLocation ? { lat: userLocation.latitude, lng: userLocation.longitude } : { lat: MOCK_USER_LOCATION.lat, lng: MOCK_USER_LOCATION.lng }}
+                    />
+                </View>
+
+                {/* Float Actions */}
+                <View style={styles.mapFloatActions}>
+                    <TouchableOpacity
+                        style={[styles.mapActionButton, { backgroundColor: '#ef4444' }]}
+                        onPress={findNearestHazard}
+                        activeOpacity={0.8}
+                    >
+                        <Ionicons name="warning" size={20} color="white" />
+                        {!isFullScreen && <Text style={styles.mapActionText}>Focus Danger</Text>}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={[styles.mapActionButton, { backgroundColor: '#3b82f6' }]}
+                        onPress={() => setIsFullScreen(!isFullScreen)}
+                        activeOpacity={0.8}
+                    >
+                        <Ionicons name={isFullScreen ? "contract" : "expand"} size={20} color="white" />
+                        {!isFullScreen && <Text style={styles.mapActionText}>Full Screen</Text>}
+                    </TouchableOpacity>
+                </View>
+
                 {/* Hazard Zone Legend */}
                 <View style={styles.legend}>
                     <View style={styles.legendItem}>
@@ -308,99 +383,103 @@ export default function MapScreen() {
                 </View>
             </View>
 
-            {/* Category Filter */}
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.categoryScroll}
-                contentContainerStyle={styles.categoryContainer}
-            >
-                {CATEGORIES.map((cat) => (
-                    <TouchableOpacity
-                        key={cat.id}
-                        style={[
-                            styles.categoryChip,
-                            selectedCategory === cat.id && styles.categoryChipActive
-                        ]}
-                        onPress={() => setSelectedCategory(cat.id as CategoryType)}
-                    >
-                        <Ionicons
-                            name={cat.icon as any}
-                            size={16}
-                            color={selectedCategory === cat.id ? '#fff' : '#9ca3af'}
-                        />
-                        <Text style={[
-                            styles.categoryLabel,
-                            selectedCategory === cat.id && styles.categoryLabelActive
-                        ]}>
-                            {cat.label}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
-            </ScrollView>
+            {/* Category Filter - Hidden in Full Screen */}
+            {!isFullScreen && (
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.categoryScroll}
+                    contentContainerStyle={styles.categoryContainer}
+                >
+                    {CATEGORIES.map((cat) => (
+                        <TouchableOpacity
+                            key={cat.id}
+                            style={[
+                                styles.categoryChip,
+                                selectedCategory === cat.id && styles.categoryChipActive
+                            ]}
+                            onPress={() => setSelectedCategory(cat.id as CategoryType)}
+                        >
+                            <Ionicons
+                                name={cat.icon as any}
+                                size={16}
+                                color={selectedCategory === cat.id ? '#fff' : '#9ca3af'}
+                            />
+                            <Text style={[
+                                styles.categoryLabel,
+                                selectedCategory === cat.id && styles.categoryLabelActive
+                            ]}>
+                                {cat.label}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </ScrollView>
+            )}
 
-            {/* Resource List */}
-            <ScrollView
-                style={styles.resourceList}
-                contentContainerStyle={styles.resourceListContent}
-            >
-                {filteredResources.map((resource) => (
-                    <View key={resource.id} style={styles.resourceCard}>
-                        {resource.inHazardZone && (
-                            <View style={styles.hazardWarning}>
-                                <Ionicons name="warning" size={12} color="#fbbf24" />
-                                <Text style={styles.hazardText}>{resource.hazardWarning || 'In hazard zone'}</Text>
-                            </View>
-                        )}
+            {/* Resource List - Hidden in Full Screen */}
+            {!isFullScreen && (
+                <ScrollView
+                    style={styles.resourceList}
+                    contentContainerStyle={styles.resourceListContent}
+                >
+                    {filteredResources.map((resource) => (
+                        <View key={resource.id} style={styles.resourceCard}>
+                            {resource.inHazardZone && (
+                                <View style={styles.hazardWarning}>
+                                    <Ionicons name="warning" size={12} color="#fbbf24" />
+                                    <Text style={styles.hazardText}>{resource.hazardWarning || 'In hazard zone'}</Text>
+                                </View>
+                            )}
 
-                        <View style={styles.resourceHeader}>
-                            <View style={styles.resourceIcon}>
-                                <Text style={{ fontSize: 24 }}>{resource.icon}</Text>
-                            </View>
-                            <View style={styles.resourceInfo}>
-                                <Text style={styles.resourceName}>{resource.name}</Text>
-                                <Text style={styles.resourceType}>{resource.type}</Text>
-                                <View style={styles.resourceMeta}>
-                                    <Text style={styles.resourceDistance}>{resource.distance}</Text>
-                                    <View style={[styles.statusDot, { backgroundColor: getStatusColor(resource.status) }]} />
-                                    <Text style={[styles.resourceStatus, { color: getStatusColor(resource.status) }]}>
-                                        {resource.status.charAt(0).toUpperCase() + resource.status.slice(1)}
-                                    </Text>
+                            <View style={styles.resourceHeader}>
+                                <View style={styles.resourceIcon}>
+                                    <Text style={{ fontSize: 24 }}>{resource.icon}</Text>
+                                </View>
+                                <View style={styles.resourceInfo}>
+                                    <Text style={styles.resourceName}>{resource.name}</Text>
+                                    <Text style={styles.resourceType}>{resource.type}</Text>
+                                    <View style={styles.resourceMeta}>
+                                        <Text style={styles.resourceDistance}>{resource.distance}</Text>
+                                        <View style={[styles.statusDot, { backgroundColor: getStatusColor(resource.status) }]} />
+                                        <Text style={[styles.resourceStatus, { color: getStatusColor(resource.status) }]}>
+                                            {resource.status.charAt(0).toUpperCase() + resource.status.slice(1)}
+                                        </Text>
+                                    </View>
                                 </View>
                             </View>
-                        </View>
 
-                        <Text style={styles.resourceAddress}>{resource.address}</Text>
-                        {resource.hours && (
-                            <View style={styles.hoursRow}>
-                                <Ionicons name="time-outline" size={12} color="#9ca3af" />
-                                <Text style={styles.hoursText}>{resource.hours}</Text>
-                            </View>
-                        )}
-                        {resource.capacity && (
-                            <View style={styles.capacityRow}>
-                                <Ionicons name="people-outline" size={12} color="#9ca3af" />
-                                <Text style={styles.capacityText}>Capacity: {resource.capacity}</Text>
-                            </View>
-                        )}
-
-                        <View style={styles.resourceActions}>
-                            <TouchableOpacity
-                                style={styles.navigateButton}
-                                onPress={() => handleNavigate(resource)}
-                            >
-                                <Ionicons name="navigate" size={16} color="#fff" />
-                                <Text style={styles.navigateText}>Navigate</Text>
-                            </TouchableOpacity>
-                            {resource.phone && (
-                                <TouchableOpacity style={styles.callButton}>
-                                    <Ionicons name="call" size={16} color="#3b82f6" />
-                                </TouchableOpacity>
+                            <Text style={styles.resourceAddress}>{resource.address}</Text>
+                            {resource.hours && (
+                                <View style={styles.hoursRow}>
+                                    <Ionicons name="time-outline" size={12} color="#9ca3af" />
+                                    <Text style={styles.hoursText}>{resource.hours}</Text>
+                                </View>
                             )}
+                            {resource.capacity && (
+                                <View style={styles.capacityRow}>
+                                    <Ionicons name="people-outline" size={12} color="#9ca3af" />
+                                    <Text style={styles.capacityText}>Capacity: {resource.capacity}</Text>
+                                </View>
+                            )}
+
+                            <View style={styles.resourceActions}>
+                                <TouchableOpacity
+                                    style={styles.navigateButton}
+                                    onPress={() => handleNavigate(resource)}
+                                >
+                                    <Ionicons name="navigate" size={16} color="#fff" />
+                                    <Text style={styles.navigateText}>Navigate</Text>
+                                </TouchableOpacity>
+                                {resource.phone && (
+                                    <TouchableOpacity style={styles.callButton}>
+                                        <Ionicons name="call" size={16} color="#3b82f6" />
+                                    </TouchableOpacity>
+                                )}
+                            </View>
                         </View>
-                    </View>
-                ))}
-            </ScrollView>
+                    ))}
+                </ScrollView>
+            )}
         </SafeAreaView >
     );
 }
@@ -431,21 +510,51 @@ const styles = StyleSheet.create({
         backgroundColor: '#1a1a2e',
         overflow: 'hidden',
     },
+    mapContainerFullScreen: {
+        flex: 1,
+        height: '100%',
+        marginHorizontal: 0,
+        borderRadius: 0,
+    },
     mapPlaceholder: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    mapText: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: '600',
-        marginTop: 8,
-    },
     mapSubtext: {
         color: '#6b7280',
         fontSize: 12,
         marginTop: 4,
+    },
+    mapFloatActions: {
+        position: 'absolute',
+        top: 60,
+        right: 12,
+        gap: 8,
+    },
+    statusOverlay: {
+        position: 'absolute',
+        top: 8,
+        left: 8,
+        right: 8,
+    },
+    mapActionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: 'rgba(30, 30, 46, 0.9)',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        boxShadow: '0px 4px 4px rgba(0, 0, 0, 0.3)',
+        elevation: 8,
+    },
+    mapActionText: {
+        color: '#fff',
+        fontSize: 13,
+        fontWeight: '600',
     },
     legend: {
         position: 'absolute',

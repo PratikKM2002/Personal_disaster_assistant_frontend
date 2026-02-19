@@ -1,9 +1,11 @@
 import { AppColors, BorderRadius } from '@/constants/Colors';
+import { useAlerts } from '@/contexts/AlertsContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { BackendAlert, getAlerts } from '@/services/api';
 import { Alert as AlertType } from '@/types';
-import { formatTimeAgo } from '@/utils';
+import { formatTimeAgo, getHazardSeverity, getHazardSeverityStyles } from '@/utils';
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -26,6 +28,7 @@ const FILTERS = [
 
 export default function AlertsScreen() {
     const { isAuthenticated } = useAuth();
+    const { setUnreadCount } = useAlerts();
     const [filter, setFilter] = useState<FilterType>('all');
     const [alerts, setAlerts] = useState<AlertType[]>([]);
     const [loading, setLoading] = useState(false);
@@ -36,27 +39,52 @@ export default function AlertsScreen() {
         let cancelled = false;
         setLoading(true);
 
-        getAlerts()
+        // Get location first
+        const fetchWithLocation = async () => {
+            let lat, lon;
+            try {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status === 'granted') {
+                    const loc = await Location.getCurrentPositionAsync({});
+                    lat = loc.coords.latitude;
+                    lon = loc.coords.longitude;
+                }
+            } catch (e) {
+                console.log("Location error in alerts:", e);
+            }
+
+            return getAlerts(lat, lon, 500);
+        };
+
+        fetchWithLocation()
             .then((backendAlerts: BackendAlert[]) => {
                 if (cancelled) return;
                 if (backendAlerts.length > 0) {
-                    const mapped: AlertType[] = backendAlerts.map((a) => ({
-                        id: String(a.id),
-                        type: 'warning' as const,
-                        title: a.message.substring(0, 60) + (a.message.length > 60 ? '...' : ''),
-                        description: a.message,
-                        category: 'Earthquake',
-                        timestamp: new Date(a.created_at),
-                        actionDestination: (a.hazard_lat && a.hazard_lon) ? {
-                            coordinates: [a.hazard_lon, a.hazard_lat],
-                            name: a.hazard_title || 'Hazard Location',
-                            icon: '⚠️'
-                        } : undefined,
-                        isRead: false,
-                    }));
+                    const mapped: AlertType[] = backendAlerts.map((a) => {
+                        const sev = a.hazard_severity || 0;
+                        const type = getHazardSeverity(sev);
+
+                        return {
+                            id: String(a.id),
+                            type,
+                            title: a.message.substring(0, 60) + (a.message.length > 60 ? '...' : ''),
+                            description: a.message,
+                            category: a.hazard_type ? (a.hazard_type.charAt(0).toUpperCase() + a.hazard_type.slice(1)) : 'Alert',
+                            timestamp: new Date(a.created_at),
+                            actionDestination: (a.hazard_lat && a.hazard_lon) ? {
+                                coordinates: [a.hazard_lon, a.hazard_lat],
+                                name: a.hazard_title || 'Hazard Location',
+                                icon: '⚠️'
+                            } : undefined,
+                            isRead: false,
+                        };
+                    });
                     setAlerts(mapped);
+                    // Update global badge count
+                    setUnreadCount(mapped.filter(a => !a.isRead).length);
                 } else {
                     setAlerts([]);
+                    setUnreadCount(0);
                 }
             })
             .catch((err) => {
@@ -75,43 +103,26 @@ export default function AlertsScreen() {
     );
 
     const markAsRead = (id: string) => {
-        setAlerts(prev => prev.map(a =>
-            a.id === id ? { ...a, isRead: true } : a
-        ));
+        setAlerts(prev => {
+            const updated = prev.map(a =>
+                a.id === id ? { ...a, isRead: true } : a
+            );
+            setUnreadCount(updated.filter(a => !a.isRead).length);
+            return updated;
+        });
     };
 
-    const getSeverityStyles = (type: string) => {
-        switch (type) {
-            case 'critical':
-                return {
-                    bg: 'rgba(239, 68, 68, 0.15)',
-                    border: '#ef4444',
-                    icon: '#ef4444',
-                    iconBg: 'rgba(239, 68, 68, 0.2)',
-                };
-            case 'warning':
-                return {
-                    bg: 'rgba(249, 115, 22, 0.15)',
-                    border: '#f97316',
-                    icon: '#f97316',
-                    iconBg: 'rgba(249, 115, 22, 0.2)',
-                };
-            case 'advisory':
-                return {
-                    bg: 'rgba(234, 179, 8, 0.15)',
-                    border: '#eab308',
-                    icon: '#eab308',
-                    iconBg: 'rgba(234, 179, 8, 0.2)',
-                };
-            default:
-                return {
-                    bg: 'rgba(59, 130, 246, 0.15)',
-                    border: '#3b82f6',
-                    icon: '#3b82f6',
-                    iconBg: 'rgba(59, 130, 246, 0.2)',
-                };
+    const getIconForHazard = (type: string | undefined) => {
+        switch (type?.toLowerCase()) {
+            case 'flood': return 'water';
+            case 'wildfire': return 'flame';
+            case 'tsunami': return 'boat';
+            case 'earthquake': return 'pulse';
+            default: return 'alert-circle';
         }
     };
+
+    const getSeverityStylesLocal = (type: string) => getHazardSeverityStyles(type);
 
     const router = useRouter();
 
@@ -175,7 +186,7 @@ export default function AlertsScreen() {
                 contentContainerStyle={styles.alertsContent}
             >
                 {filteredAlerts.map((alert) => {
-                    const severity = getSeverityStyles(alert.type);
+                    const severity = getHazardSeverityStyles(alert.type);
                     return (
                         <TouchableOpacity
                             key={alert.id}
@@ -195,7 +206,7 @@ export default function AlertsScreen() {
                             <View style={styles.alertHeader}>
                                 <View style={[styles.alertIconContainer, { backgroundColor: severity.iconBg }]}>
                                     <Ionicons
-                                        name={alert.type === 'critical' ? 'alert-circle' : 'warning'}
+                                        name={getIconForHazard(alert.category?.toLowerCase()) as any}
                                         size={20}
                                         color={severity.icon}
                                     />

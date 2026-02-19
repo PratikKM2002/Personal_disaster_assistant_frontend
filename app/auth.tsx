@@ -311,10 +311,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#3b82f6',
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: '#3b82f6',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.4,
-        shadowRadius: 12,
+        boxShadow: '0px 4px 12px rgba(59, 130, 246, 0.4)',
         elevation: 8,
     },
     logoGlow: {
@@ -423,10 +420,7 @@ const styles = StyleSheet.create({
         paddingVertical: 16,
         borderRadius: 12,
         marginTop: 8,
-        shadowColor: '#3b82f6',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
+        boxShadow: '0px 4px 8px rgba(59, 130, 246, 0.3)',
         elevation: 4,
     },
     submitButtonDisabled: {

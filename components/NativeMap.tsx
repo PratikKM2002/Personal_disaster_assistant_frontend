@@ -2,7 +2,7 @@ import { AppColors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import MapView, { Circle, Marker, Polyline } from 'react-native-maps';
+import MapView, { Circle, Heatmap, Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
 type ResourceMarker = {
     id: string;
@@ -53,10 +53,10 @@ const SEVERITY_COLORS: Record<string, { fill: string; stroke: string }> = {
 };
 
 const SEVERITY_RADIUS: Record<string, number> = {
-    critical: 600,
-    high: 450,
-    moderate: 350,
-    low: 250,
+    critical: 2000,
+    high: 1200,
+    moderate: 800,
+    low: 400,
 };
 
 const FAMILY_STATUS_COLORS: Record<string, string> = {
@@ -64,6 +64,17 @@ const FAMILY_STATUS_COLORS: Record<string, string> = {
     danger: '#ef4444',
     pending: '#eab308',
     unknown: '#6b7280',
+};
+
+const getIconForHazard = (type: string | undefined) => {
+    switch (type) {
+        case 'flood': return 'water';
+        case 'wildfire': return 'flame';
+        case 'tsunami': return 'boat';
+        case 'hurricane': return 'thunderstorm';
+        case 'earthquake': return 'pulse';
+        default: return 'alert-circle';
+    }
 };
 
 const getIconForResource = (type: string | undefined) => {
@@ -75,7 +86,7 @@ const getIconForResource = (type: string | undefined) => {
     }
 };
 
-export default function NativeMap({
+const NativeMap = React.forwardRef<any, NativeMapProps>(({
     userLocation,
     resources,
     categoryColors,
@@ -87,8 +98,27 @@ export default function NativeMap({
     pitch = 0,
     bearing = 0,
     destination
-}: NativeMapProps) {
+}, ref) => {
     const mapRef = React.useRef<any>(null);
+
+    // Expose centerOnUser to parent via ref
+    React.useImperativeHandle(ref, () => ({
+        centerOnUser: () => {
+            if (mapRef.current) {
+                mapRef.current.animateToRegion({
+                    latitude: userLocation.lat,
+                    longitude: userLocation.lng,
+                    latitudeDelta: 0.02,
+                    longitudeDelta: 0.02,
+                }, 800);
+            }
+        },
+        animateToRegion: (region: any, duration: number) => {
+            if (mapRef.current) {
+                mapRef.current.animateToRegion(region, duration);
+            }
+        },
+    }));
     const prevLocationRef = React.useRef(userLocation);
 
     // Animate to user's real location whenever it changes significantly
@@ -149,6 +179,7 @@ export default function NativeMap({
         <View style={{ flex: 1 }}>
             <MapView
                 ref={mapRef}
+                provider={PROVIDER_GOOGLE}
                 style={StyleSheet.absoluteFillObject}
                 initialRegion={{
                     latitude: userLocation.lat,
@@ -195,6 +226,25 @@ export default function NativeMap({
                     return null;
                 })()}
 
+                {/* Heatmap for Flash Hazards (Flood/Wildfire Corridor) */}
+                {hazards.length > 0 && (
+                    /* @ts-ignore */
+                    <Heatmap
+                        points={hazards.filter(h => h.type === 'flood' || h.type === 'wildfire').map(h => ({
+                            latitude: h.location.lat,
+                            longitude: h.location.lng,
+                            weight: h.severity === 'critical' ? 5 : h.severity === 'high' ? 3 : 1
+                        }))}
+                        radius={50}
+                        opacity={0.6}
+                        gradient={{
+                            colors: ['#22c55e00', '#eab308', '#f97316', '#ef4444'],
+                            startPoints: [0, 0.4, 0.7, 1],
+                            colorMapSize: 256
+                        }}
+                    />
+                )}
+
                 {/* Hazard zone circles */}
                 {hazards.map((hazard) => {
                     const colors = SEVERITY_COLORS[hazard.severity] || SEVERITY_COLORS.moderate;
@@ -224,8 +274,15 @@ export default function NativeMap({
                         }}
                         title={hazard.title}
                         description={`Severity: ${hazard.severity.toUpperCase()}`}
-                        pinColor={hazard.severity === 'critical' ? '#ef4444' : hazard.severity === 'high' ? '#f97316' : '#eab308'}
-                    />
+                        zIndex={60}
+                    >
+                        <View style={markerStyles.markerWrapper}>
+                            <View style={[markerStyles.markerContainer, { backgroundColor: hazard.severity === 'critical' ? '#ef4444' : hazard.severity === 'high' ? '#f97316' : '#eab308' }]}>
+                                <Ionicons name={getIconForHazard(hazard.type) as any} size={18} color="white" />
+                            </View>
+                            <View style={[markerStyles.markerTip, { borderTopColor: hazard.severity === 'critical' ? '#ef4444' : hazard.severity === 'high' ? '#f97316' : '#eab308' }]} />
+                        </View>
+                    </Marker>
                 ))}
 
                 {/* User location pointer */}
@@ -273,6 +330,12 @@ export default function NativeMap({
                         zIndex={40}
                     >
                         <View style={[markerStyles.familyMarker, { borderColor: FAMILY_STATUS_COLORS[member.status] || '#6b7280' }]}>
+                            <Ionicons
+                                name={member.status === 'safe' ? 'checkmark-circle' : member.status === 'danger' ? 'warning' : 'person'}
+                                size={14}
+                                color="white"
+                                style={{ position: 'absolute', top: -10, right: -10 }}
+                            />
                             <Text style={markerStyles.familyMarkerText}>{member.name.charAt(0)}</Text>
                         </View>
                     </Marker>
@@ -306,8 +369,9 @@ export default function NativeMap({
             </TouchableOpacity>
         </View>
     );
-}
+});
 
+export default NativeMap;
 const markerStyles = StyleSheet.create({
     markerWrapper: {
         alignItems: 'center',

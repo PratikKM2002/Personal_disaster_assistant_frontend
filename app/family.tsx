@@ -1,16 +1,18 @@
 import NativeMap from '@/components/NativeMap';
 import { AppColors, BorderRadius } from '@/constants/Colors';
 import { MOCK_USER_LOCATION } from '@/constants/Data';
-import { createFamily, FamilyMember, getFamilyMembers, joinFamily, leaveFamily, updateStatus } from '@/services/api';
+import { createFamily, FamilyMember, getFamilyMembers, getUserProfile, joinFamily, leaveFamily, removeFamilyMember, updateStatus } from '@/services/api';
 import { formatTimeAgo, getStatusColor, makePhoneCall, openGoogleMapsNavigation, sendSMS } from '@/utils';
 import { Ionicons } from '@expo/vector-icons';
+import * as Battery from 'expo-battery';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    SafeAreaView,
+    Modal,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -18,6 +20,8 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { LOCATION_BATTERY_TASK } from '../services/backgroundTask'; // This also registers the task
 
 type ViewType = 'list' | 'map';
 
@@ -32,6 +36,7 @@ interface UIFamilyMember {
     coordinates?: [number, number];
     phone: string;
     relation: string;
+    safety_message?: string;
 }
 
 export default function FamilyScreen() {
@@ -43,6 +48,19 @@ export default function FamilyScreen() {
     const [currentView, setCurrentView] = useState<ViewType>('list');
     const [userLocation, setUserLocation] = useState(MOCK_USER_LOCATION);
     const [simulatedFamily, setSimulatedFamily] = useState<UIFamilyMember[]>([]);
+    const [isAdmin, setIsAdmin] = useState(false);
+
+    const [showSafetyModal, setShowSafetyModal] = useState(false);
+    const [safetyMessage, setSafetyMessage] = useState('');
+    const [safetyStatus, setSafetyStatus] = useState<'safe' | 'needs-help' | 'offering-help'>('safe');
+
+    const PRESET_MESSAGES = [
+        "I need water",
+        "I need medical aid",
+        "I am trapped",
+        "I need evacuation help",
+        "Power outage"
+    ];
 
     // Generate random family positions near the user
     const generateFamilyLocations = (center: { lat: number; lng: number }) => {
@@ -63,12 +81,38 @@ export default function FamilyScreen() {
     useEffect(() => {
         loadFamily();
         getLocation();
+        startBackgroundUpdates();
     }, []);
+
+    const startBackgroundUpdates = async () => {
+        if (Platform.OS === 'web') return;
+
+        try {
+            const { status } = await Location.requestBackgroundPermissionsAsync();
+            if (status === 'granted') {
+                await Location.startLocationUpdatesAsync(LOCATION_BATTERY_TASK, {
+                    accuracy: Location.Accuracy.Balanced,
+                    timeInterval: 15 * 60 * 1000, // 15 minutes
+                    distanceInterval: 100, // 100 meters
+                    foregroundService: {
+                        notificationTitle: "Guardian AI Active",
+                        notificationBody: "Monitoring location and safety status",
+                        notificationColor: "#3b82f6"
+                    }
+                });
+                console.log("Background location task started");
+            }
+        } catch (error) {
+            console.log("Error starting background updates (likely missing permissions/plist):", error);
+        }
+    };
 
     const loadFamily = async () => {
         setLoading(true);
         try {
             const data = await getFamilyMembers();
+            const me = await getUserProfile();
+            setIsAdmin(me.role === 'admin');
 
             if (!data.family_id) {
                 // No family at all -> Show Join/Create UI
@@ -85,12 +129,13 @@ export default function FamilyScreen() {
                     id: String(m.id),
                     name: m.name,
                     status: m.safety_status || 'unknown',
-                    location: m.last_lat ? 'Last seen recently' : 'Unknown location',
+                    location: m.last_address || (m.last_lat ? 'Last seen recently' : 'Unknown location'),
                     batteryLevel: m.battery_level || undefined,
                     lastUpdate: m.last_location_update ? formatTimeAgo(new Date(m.last_location_update)) : 'Never',
                     coordinates: (m.last_lat && m.last_lon) ? [m.last_lon, m.last_lat] : undefined,
                     phone: m.phone || '',
                     relation: 'Family',
+                    safety_message: m.safety_message,
                 }));
                 setFamily(mapped);
                 setSimulatedFamily(mapped); // For map view
@@ -158,6 +203,29 @@ export default function FamilyScreen() {
         );
     };
 
+    const handleRemoveMember = (member: UIFamilyMember) => {
+        Alert.alert(
+            'Remove Member',
+            `Are you sure you want to remove ${member.name} from the family?`,
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Remove',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await removeFamilyMember(member.id);
+                            Alert.alert('Success', 'Member removed successfully');
+                            loadFamily();
+                        } catch (err) {
+                            Alert.alert('Error', 'Failed to remove member');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
     const handleMarkSafe = async () => {
         try {
             const { status } = await Location.requestForegroundPermissionsAsync();
@@ -167,7 +235,8 @@ export default function FamilyScreen() {
             }
 
             const loc = await Location.getCurrentPositionAsync({});
-            await updateStatus(loc.coords.latitude, loc.coords.longitude, 'safe', 90); // TODO: Real battery
+            const battery = await getRealBatteryLevel();
+            await updateStatus(loc.coords.latitude, loc.coords.longitude, 'safe', battery, 'Marked safe via Family');
 
             Alert.alert('Status Updated', 'You are marked as Safe.');
             loadFamily(); // Refresh list to show updated status
@@ -177,8 +246,29 @@ export default function FamilyScreen() {
         }
     };
 
+    const handleReportIssue = async () => {
+        if (!safetyMessage) {
+            Alert.alert('Error', 'Please enter a message or select a preset.');
+            return;
+        }
+        try {
+            const loc = await Location.getCurrentPositionAsync({});
+            await updateStatus(loc.coords.latitude, loc.coords.longitude, 'needs-help', 80, safetyMessage);
+            Alert.alert('Success', 'Status updated successfully!');
+            setShowSafetyModal(false);
+            setSafetyMessage('');
+            loadFamily();
+        } catch (error) {
+            Alert.alert('Error', 'Failed to update status');
+        }
+    };
+
+
+
     const getLocation = async () => {
         try {
+            if (Platform.OS === 'web') return; // Skip for web if needed, though getPositionAsync works on web usually
+
             const { status } = await Location.requestForegroundPermissionsAsync();
             if (status !== 'granted') return;
 
@@ -192,9 +282,10 @@ export default function FamilyScreen() {
             setUserLocation(loc);
 
             // Push my location to backend
-            await updateStatus(loc.lat, loc.lng, 'safe', 85); // TODO: get real battery
+            const battery = await getRealBatteryLevel();
+            await updateStatus(loc.lat, loc.lng, 'safe', battery);
         } catch (error) {
-            console.error('Location error:', error);
+            console.error('Location error (permissions/plist?):', error);
         }
     };
 
@@ -247,6 +338,18 @@ export default function FamilyScreen() {
         if (level > 50) return '#22c55e';
         if (level > 20) return '#eab308';
         return '#ef4444';
+    };
+
+    const getRealBatteryLevel = async () => {
+        try {
+            // Attempt to get battery on all platforms. 
+            // On web, this works in Chrome/Edge. Safari will return -1 or throw.
+            const level = await Battery.getBatteryLevelAsync();
+            return level !== -1 ? Math.round(level * 100) : undefined;
+        } catch (e) {
+            console.log("Battery fetch failed (likely unsupported browser):", e);
+            return undefined;
+        }
     };
 
     if (loading && family.length === 0 && !showJoinUI) {
@@ -367,13 +470,16 @@ export default function FamilyScreen() {
                     </View>
 
                     {/* Mark Myself Safe Button */}
-                    <TouchableOpacity
-                        style={styles.markSafeButton}
-                        onPress={handleMarkSafe}
-                    >
-                        <Ionicons name="shield-checkmark" size={20} color="#fff" />
-                        <Text style={styles.markSafeText}>I'm Safe</Text>
-                    </TouchableOpacity>
+                    {/* Safety Widget */}
+                    <View style={styles.safetyWidget}>
+                        <TouchableOpacity style={styles.safeBtnMain} onPress={handleMarkSafe}>
+                            <Ionicons name="shield-checkmark" size={20} color="#fff" />
+                            <Text style={styles.safeBtnText}>I'm Safe</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.reportBtnMain} onPress={() => setShowSafetyModal(true)}>
+                            <Text style={styles.reportBtnText}>Report Issue / Update Status ▼</Text>
+                        </TouchableOpacity>
+                    </View>
 
                     {/* View Toggle */}
                     <View style={styles.viewToggle}>
@@ -428,9 +534,10 @@ export default function FamilyScreen() {
                                                 <View style={{ flex: 1 }}>
                                                     <Text style={styles.mapMemberName}>{member.name}</Text>
                                                     <Text style={[styles.mapMemberStatus, { color: statusColors.text }]}>
-                                                        {member.status === 'safe' ? '✅ Safe' :
-                                                            member.status === 'pending' ? '⏳ Pending' :
-                                                                member.status === 'danger' ? '🚨 In Danger' : '❓ Unknown'}
+                                                        {member.status !== 'safe' && member.safety_message ? member.safety_message :
+                                                            (member.status === 'safe' ? '✅ Safe' :
+                                                                member.status === 'pending' ? '⏳ Pending' :
+                                                                    member.status === 'danger' ? '🚨 In Danger' : '❓ Unknown')}
                                                         {' • '}{member.lastUpdate}
                                                     </Text>
                                                 </View>
@@ -476,9 +583,10 @@ export default function FamilyScreen() {
                                                         color={statusColors.marker}
                                                     />
                                                     <Text style={[styles.memberStatus, { color: statusColors.text }]}>
-                                                        {member.status === 'safe' ? 'Safe' :
-                                                            member.status === 'pending' ? 'Pending' :
-                                                                member.status === 'danger' ? 'In Danger' : 'Unknown'}
+                                                        {member.status !== 'safe' && member.safety_message ? member.safety_message :
+                                                            (member.status === 'safe' ? 'Safe' :
+                                                                member.status === 'pending' ? 'Pending' :
+                                                                    member.status === 'danger' ? 'In Danger' : 'Unknown')}
                                                     </Text>
                                                     <Text style={styles.memberTime}>• {member.lastUpdate}</Text>
                                                 </View>
@@ -528,6 +636,14 @@ export default function FamilyScreen() {
                                             >
                                                 <Text style={styles.checkInText}>Request Check-in</Text>
                                             </TouchableOpacity>
+                                            {isAdmin && (
+                                                <TouchableOpacity
+                                                    style={[styles.actionButton, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}
+                                                    onPress={() => handleRemoveMember(member)}
+                                                >
+                                                    <Ionicons name="trash" size={16} color="#ef4444" />
+                                                </TouchableOpacity>
+                                            )}
                                         </View>
                                     </View>
                                 );
@@ -542,6 +658,53 @@ export default function FamilyScreen() {
                     )}
                 </>
             )}
+
+            {/* SAFETY MODAL */}
+            <Modal
+                animationType="slide"
+                transparent={true}
+                visible={showSafetyModal}
+                onRequestClose={() => setShowSafetyModal(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <Text style={styles.modalTitle}>Update Safety Status</Text>
+                        <Text style={styles.modalSub}>Select a message to notify family:</Text>
+
+                        <View style={{ gap: 8, marginBottom: 16 }}>
+                            {PRESET_MESSAGES.map(msg => (
+                                <TouchableOpacity
+                                    key={msg}
+                                    style={[
+                                        styles.presetBtn,
+                                        safetyMessage === msg && styles.presetBtnActive
+                                    ]}
+                                    onPress={() => setSafetyMessage(msg)}
+                                >
+                                    <Text style={[styles.presetBtnText, safetyMessage === msg && { color: '#fff' }]}>{msg}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+
+                        <TextInput
+                            style={styles.modalInput}
+                            placeholder="Or enter custom message..."
+                            placeholderTextColor="#666"
+                            value={safetyMessage}
+                            onChangeText={setSafetyMessage}
+                        />
+
+                        <View style={styles.modalButtons}>
+                            <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowSafetyModal(false)}>
+                                <Text style={styles.modalBtnText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.modalBtnConfirm, { backgroundColor: '#ef4444' }]} onPress={handleReportIssue}>
+                                <Text style={[styles.modalBtnText, { fontWeight: 'bold' }]}>SOS / Broadcast</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -595,6 +758,104 @@ const styles = StyleSheet.create({
     statusLabel: {
         color: '#9ca3af',
         fontSize: 11,
+    },
+    safetyWidget: {
+        marginBottom: 16,
+        paddingHorizontal: 16,
+        gap: 8,
+    },
+    safeBtnMain: {
+        backgroundColor: '#22c55e',
+        borderRadius: BorderRadius.lg,
+        padding: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+    },
+    safeBtnText: {
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: 'bold',
+        letterSpacing: 1,
+    },
+    reportBtnMain: {
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: BorderRadius.lg,
+        padding: 12,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.2)',
+    },
+    reportBtnText: {
+        color: '#9ca3af',
+        fontSize: 14,
+        fontWeight: '500',
+    },
+    presetBtn: {
+        backgroundColor: '#333',
+        padding: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#444',
+    },
+    presetBtnActive: {
+        backgroundColor: '#ef4444',
+        borderColor: '#ef4444',
+    },
+    presetBtnText: {
+        color: '#ccc',
+        textAlign: 'center',
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.7)',
+        justifyContent: 'center',
+        padding: 20,
+    },
+    modalContent: {
+        backgroundColor: '#1f1f1f',
+        borderRadius: 16,
+        padding: 20,
+        borderWidth: 1,
+        borderColor: '#333',
+    },
+    modalTitle: {
+        color: '#fff',
+        fontSize: 20,
+        fontWeight: '700',
+        marginBottom: 8,
+    },
+    modalSub: {
+        color: '#9ca3af',
+        marginBottom: 16,
+    },
+    modalInput: {
+        backgroundColor: '#333',
+        color: '#fff',
+        borderRadius: 8,
+        padding: 12,
+        fontSize: 16,
+        marginBottom: 16,
+    },
+    modalButtons: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        gap: 12,
+    },
+    modalBtnCancel: {
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+    },
+    modalBtnConfirm: {
+        backgroundColor: '#3b82f6',
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+    },
+    modalBtnText: {
+        color: '#fff',
+        fontSize: 16,
     },
     markSafeButton: {
         flexDirection: 'row',

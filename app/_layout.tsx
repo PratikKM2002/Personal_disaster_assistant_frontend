@@ -6,9 +6,14 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
 import { AuthProvider } from '../contexts/AuthContext';
+
+import { AlertsProvider } from '@/contexts/AlertsContext';
+import { ActionSheetProvider } from '@expo/react-native-action-sheet';
+import '../services/backgroundTask';
 
 export {
   ErrorBoundary
@@ -43,13 +48,45 @@ export default function RootLayout() {
     ...FontAwesome.font,
   });
 
+  const [isSplashAnimationComplete, setSplashAnimationComplete] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
     if (error) throw error;
   }, [error]);
 
   useEffect(() => {
     if (loaded) {
+      // 1. Hide the native splash screen immediately so our custom one shows
       SplashScreen.hideAsync();
+
+      // 2. Start Pulse Animation
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(scaleAnim, {
+            toValue: 1.1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(scaleAnim, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+
+      // 3. After a delay, fade out and show app
+      setTimeout(() => {
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+        }).start(() => {
+          setSplashAnimationComplete(true);
+        });
+      }, 3000); // Show splash for 3 seconds
     }
   }, [loaded]);
 
@@ -59,76 +96,56 @@ export default function RootLayout() {
 
   return (
     <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} tokenCache={tokenCache}>
-      <AuthProvider>
-        <ThemeProvider value={GuardianTheme}>
-          <StatusBar style="light" />
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: '#0d0d0d' },
-              animation: 'slide_from_right',
-            }}
-          >
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen
-              name="auth"
-              options={{
-                presentation: 'fullScreenModal',
-                animation: 'fade',
-              }}
-            />
-            <Stack.Screen
-              name="family"
-              options={{
-                presentation: 'modal',
-                animation: 'slide_from_bottom',
-              }}
-            />
-            <Stack.Screen
-              name="kit"
-              options={{
-                presentation: 'modal',
-                animation: 'slide_from_bottom',
-              }}
-            />
-            <Stack.Screen
-              name="documents"
-              options={{
-                presentation: 'modal',
-                animation: 'slide_from_bottom',
-              }}
-            />
-            <Stack.Screen
-              name="neighbors"
-              options={{
-                presentation: 'modal',
-                animation: 'slide_from_bottom',
-              }}
-            />
-            <Stack.Screen
-              name="resources"
-              options={{
-                presentation: 'modal',
-                animation: 'slide_from_bottom',
-              }}
-            />
-            <Stack.Screen
-              name="chat"
-              options={{
-                presentation: 'modal',
-                animation: 'slide_from_bottom',
-              }}
-            />
-            <Stack.Screen
-              name="navigation"
-              options={{
-                presentation: 'fullScreenModal',
-                animation: 'fade',
-              }}
-            />
-          </Stack>
-        </ThemeProvider>
-      </AuthProvider>
+      <ThemeProvider value={GuardianTheme}>
+        <AuthProvider>
+          <AlertsProvider>
+            <ActionSheetProvider>
+              <View style={{ flex: 1 }}>
+                <StatusBar style="light" />
+                <Stack
+                  screenOptions={{
+                    headerShown: false,
+                    contentStyle: { backgroundColor: '#0d0d0d' },
+                    animation: 'slide_from_right',
+                  }}
+                >
+                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                  <Stack.Screen name="auth" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
+                  <Stack.Screen name="family" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                  {/* <Stack.Screen name="kit" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} /> */}
+                  {/* <Stack.Screen name="documents" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} /> */}
+                  {/* <Stack.Screen name="neighbors" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} /> */}
+                  <Stack.Screen name="navigation" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
+                </Stack>
+
+                {/* Custom Splash Screen Overlay */}
+                {!isSplashAnimationComplete && (
+                  <Animated.View style={[
+                    StyleSheet.absoluteFill,
+                    {
+                      backgroundColor: '#ffffff',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      opacity: fadeAnim,
+                      zIndex: 999
+                    }
+                  ]}>
+                    <Animated.Image
+                      source={require('../assets/images/logo.png')}
+                      resizeMode="contain"
+                      style={{
+                        width: 280,
+                        height: 280,
+                        transform: [{ scale: scaleAnim }]
+                      }}
+                    />
+                  </Animated.View>
+                )}
+              </View>
+            </ActionSheetProvider>
+          </AlertsProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </ClerkProvider>
   );
 }

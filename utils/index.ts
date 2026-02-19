@@ -126,6 +126,51 @@ export const getSeverityColor = (severity: 'critical' | 'high' | 'moderate' | 'l
 };
 
 /**
+ * Categorize hazard severity based on numeric score
+ */
+export const getHazardSeverity = (severity: number): 'critical' | 'warning' | 'advisory' => {
+    if (severity >= 0.7) return 'critical';
+    if (severity >= 0.4) return 'warning';
+    return 'advisory';
+};
+
+/**
+ * Get color scheme for hazard severity
+ */
+export const getHazardSeverityStyles = (severityString: 'critical' | 'warning' | 'advisory' | string) => {
+    switch (severityString) {
+        case 'critical':
+            return {
+                bg: 'rgba(239, 68, 68, 0.15)',
+                border: '#ef4444',
+                icon: '#ef4444',
+                iconBg: 'rgba(239, 68, 68, 0.2)',
+            };
+        case 'warning':
+            return {
+                bg: 'rgba(249, 115, 22, 0.15)',
+                border: '#f97316',
+                icon: '#f97316',
+                iconBg: 'rgba(249, 115, 22, 0.2)',
+            };
+        case 'advisory':
+            return {
+                bg: 'rgba(234, 179, 8, 0.15)',
+                border: '#eab308',
+                icon: '#eab308',
+                iconBg: 'rgba(234, 179, 8, 0.2)',
+            };
+        default:
+            return {
+                bg: 'rgba(59, 130, 246, 0.15)',
+                border: '#3b82f6',
+                icon: '#3b82f6',
+                iconBg: 'rgba(59, 130, 246, 0.2)',
+            };
+    }
+};
+
+/**
  * Get status color for family/neighbors
  */
 export const getStatusColor = (status: 'safe' | 'danger' | 'pending' | 'unknown' | 'needs-help' | 'offering-help' | string) => {
