@@ -43,6 +43,7 @@ async function hazardRoutes(req, res, requireAuth) {
                 )
               ) AS dist_km
             FROM hazard h
+            WHERE h.occurred_at >= NOW() - INTERVAL '48 hours'
           )
           SELECT * FROM calc
           WHERE dist_km <= (SELECT radius_km FROM params)
@@ -207,6 +208,7 @@ async function hazardRoutes(req, res, requireAuth) {
               ) AS dist_km
             FROM hazard h
             WHERE h.type = $4
+            AND h.occurred_at >= NOW() - INTERVAL '48 hours'
             ${since ? `AND h.occurred_at >= $5` : ``}
           )
           SELECT *

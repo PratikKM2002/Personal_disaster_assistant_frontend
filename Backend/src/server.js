@@ -1,5 +1,6 @@
 const http = require('http');
 const router = require('./router');
+const { rateLimit } = require('./middleware/rate-limiter');
 
 function createServer() {
   return http.createServer(async (req, res) => {
@@ -10,7 +11,7 @@ function createServer() {
     // CORS Headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET, POST, PUT, DELETE');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Bypass-Tunnel-Reminder');
 
     // Handle Preflight
     if (req.method === 'OPTIONS') {
@@ -18,6 +19,9 @@ function createServer() {
       res.end();
       return;
     }
+
+    // Rate limiting — 100 requests per minute per IP
+    if (rateLimit(req, res)) return;
 
     await router(req, res);
   });

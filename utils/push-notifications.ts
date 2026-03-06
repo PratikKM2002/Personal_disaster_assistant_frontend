@@ -21,6 +21,16 @@ export async function registerForPushNotificationsAsync() {
             vibrationPattern: [0, 250, 250, 250],
             lightColor: '#FF231F7C',
         });
+
+        // Emergency SOS channel — highest priority
+        await Notifications.setNotificationChannelAsync('emergency', {
+            name: 'Emergency SOS',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 500, 200, 500, 200, 500],
+            lightColor: '#FF0000',
+            sound: 'default',
+            enableVibrate: true,
+        });
     }
 
     if (Device.isDevice) {

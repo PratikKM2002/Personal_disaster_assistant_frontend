@@ -22,6 +22,7 @@ async function chatRoutes(req, res, requireAuth) {
                     SELECT type, severity, attributes->>'title' as title
                     FROM hazard
                     WHERE (6371 * acos(cos(radians($1)) * cos(radians(lat)) * cos(radians(lon) - radians($2)) + sin(radians($1)) * sin(radians(lat)))) <= 50
+                      AND occurred_at >= NOW() - INTERVAL '48 hours'
                     ORDER BY occurred_at DESC
                     LIMIT 3
                 `, [lat, lon]);

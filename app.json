@@ -19,7 +19,11 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app uses your location to share your safety status with your family.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app tracks your location in the background to keep your family updated on your safety.",
-        "NSLocationAlwaysUsageDescription": "This app tracks your location in the background to keep your family updated on your safety."
+        "NSLocationAlwaysUsageDescription": "This app tracks your location in the background to keep your family updated on your safety.",
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ]
       }
     },
     "android": {
@@ -38,7 +42,15 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Guardian AI uses your location in the background to alert your family during emergencies and monitor nearby hazards.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

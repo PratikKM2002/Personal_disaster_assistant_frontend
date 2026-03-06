@@ -1,12 +1,21 @@
 
-// For physical device testing, use your machine's LAN IP:
-// For physical device testing, use your machine's LAN IP:
-const API_BASE_URL = 'http://192.168.1.36:8000';
+import { showToast } from '@/components/Toast';
+import NetInfo from '@react-native-community/netinfo';
+
+// --- Configuration ---
+// Reads from EXPO_PUBLIC_API_URL env var; falls back to LAN IP for dev
+const API_BASE_URL =
+    process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.36:8000';
 
 let authToken: string | null = null;
 export function setAuthToken(token: string) {
     authToken = token;
 }
+
+// --- Retry / Timeout config ---
+const MAX_RETRIES = 2;
+const BASE_DELAY_MS = 1000;   // 1s, then 2s
+const REQUEST_TIMEOUT_MS = 15000;
 
 // --- HTTP Helpers ---
 
@@ -15,27 +24,87 @@ async function request<T>(
     options: RequestInit = {},
     auth = false
 ): Promise<T> {
+    // Check network connectivity first
+    const netState = await NetInfo.fetch();
+    if (!netState.isConnected) {
+        showToast('error', 'No Internet', 'Check your connection and try again.');
+        throw new ApiError('No internet connection', 0);
+    }
+
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'Authorization': authToken ? `Bearer ${authToken}` : 'Bearer dev-token',
+        'Bypass-Tunnel-Reminder': 'true',
         ...(options.headers as Record<string, string>),
     };
 
-    // TODO: If you want to protect backend routes with Clerk tokens,
-    // use `useAuth().getToken()` from Clerk and pass it here.
+    let lastError: Error | null = null;
 
-    const res = await fetch(`${API_BASE_URL}${path}`, {
-        ...options,
-        headers,
-    });
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            // Timeout via AbortController
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-    const data = await res.json();
+            const res = await fetch(`${API_BASE_URL}${path}`, {
+                ...options,
+                headers,
+                signal: controller.signal,
+            });
 
-    if (!res.ok) {
-        throw new ApiError(data.error || 'Request failed', res.status);
+            clearTimeout(timeout);
+
+            // If server error (5xx), retry
+            if (res.status >= 500 && attempt < MAX_RETRIES) {
+                lastError = new ApiError(`Server error ${res.status}`, res.status);
+                await delay(BASE_DELAY_MS * Math.pow(2, attempt));
+                continue;
+            }
+
+            // Safe JSON parsing — handle non-JSON responses gracefully
+            const text = await res.text();
+            let data: any;
+            try {
+                data = JSON.parse(text);
+            } catch {
+                throw new ApiError(
+                    `Invalid response from server (status ${res.status})`,
+                    res.status
+                );
+            }
+
+            if (!res.ok) {
+                throw new ApiError(data.error || 'Request failed', res.status);
+            }
+
+            return data as T;
+        } catch (err: any) {
+            // Aborted = timeout
+            if (err.name === 'AbortError') {
+                lastError = new ApiError('Request timed out', 0);
+            } else if (err instanceof ApiError) {
+                lastError = err;
+            } else {
+                // Network error (fetch failed entirely)
+                lastError = new ApiError(err.message || 'Network error', 0);
+            }
+
+            // Retry on network/timeout errors (not on 4xx)
+            if (attempt < MAX_RETRIES && !(lastError instanceof ApiError && (lastError as ApiError).status >= 400 && (lastError as ApiError).status < 500)) {
+                await delay(BASE_DELAY_MS * Math.pow(2, attempt));
+                continue;
+            }
+        }
     }
 
-    return data as T;
+    // All retries exhausted — show toast
+    const errMsg = lastError?.message || 'Something went wrong';
+    showToast('error', 'Request Failed', errMsg);
+    throw lastError || new ApiError('Unknown error', 0);
+}
+
+function delay(ms: number) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 export class ApiError extends Error {
@@ -204,10 +273,13 @@ export interface BackendAlert {
     hazard_title?: string;
 }
 
-export async function getAlerts(lat?: number, lon?: number, radiusKm = 500): Promise<BackendAlert[]> {
+export async function getAlerts(lat?: number, lon?: number, radiusKm = 500, minSeverity?: number): Promise<BackendAlert[]> {
     let url = '/alerts';
     if (lat !== undefined && lon !== undefined) {
         url += `?lat=${lat}&lon=${lon}&radius_km=${radiusKm}`;
+        if (minSeverity !== undefined && minSeverity > 0) {
+            url += `&min_severity=${minSeverity}`;
+        }
     }
     return request<BackendAlert[]>(url, {}, true);
 }
@@ -312,6 +384,13 @@ export async function updatePushToken(token: string): Promise<{ success: boolean
     return request<{ success: boolean }>('/user/push-token', {
         method: 'POST',
         body: JSON.stringify({ token }),
+    }, true);
+}
+
+export async function sendSOS(lat: number, lon: number): Promise<{ success: boolean; notified: number }> {
+    return request<{ success: boolean; notified: number }>('/sos', {
+        method: 'POST',
+        body: JSON.stringify({ lat, lon }),
     }, true);
 }
 

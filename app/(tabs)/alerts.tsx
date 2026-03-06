@@ -7,8 +7,10 @@ import { formatTimeAgo, getHazardSeverity, getHazardSeverityStyles } from '@/uti
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+    Modal,
+    Pressable,
     SafeAreaView,
     ScrollView,
     StyleSheet,
@@ -19,11 +21,19 @@ import {
 
 type FilterType = 'all' | 'critical' | 'warning' | 'advisory' | 'info';
 
-const FILTERS = [
-    { id: 'all', label: 'All' },
-    { id: 'critical', label: 'Critical' },
-    { id: 'warning', label: 'Warning' },
-    { id: 'advisory', label: 'Advisory' },
+const SEVERITY_FILTERS = [
+    { id: 'all', label: 'All', minSev: 0 },
+    { id: 'critical', label: 'Critical', minSev: 0.7 },
+    { id: 'warning', label: 'Warning', minSev: 0.4 },
+    { id: 'advisory', label: 'Advisory', minSev: 0.1 },
+];
+
+const DISTANCE_OPTIONS = [
+    { label: '10 km', value: 10 },
+    { label: '25 km', value: 25 },
+    { label: '50 km', value: 50 },
+    { label: '100 km', value: 100 },
+    { label: '500 km', value: 500 },
 ];
 
 export default function AlertsScreen() {
@@ -32,15 +42,54 @@ export default function AlertsScreen() {
     const [filter, setFilter] = useState<FilterType>('all');
     const [alerts, setAlerts] = useState<AlertType[]>([]);
     const [loading, setLoading] = useState(false);
+    const [distanceKm, setDistanceKm] = useState(100);
+    const [showDistancePicker, setShowDistancePicker] = useState(false);
+    const [userLoc, setUserLoc] = useState<{ lat: number; lon: number } | null>(null);
 
-    // Fetch real alerts from backend if authenticated
+    const fetchAlerts = useCallback(async (lat?: number, lon?: number, radius = distanceKm) => {
+        setLoading(true);
+        try {
+            const backendAlerts = await getAlerts(lat, lon, radius);
+            if (backendAlerts.length > 0) {
+                const mapped: AlertType[] = backendAlerts.map((a: BackendAlert) => {
+                    const sev = a.hazard_severity || 0;
+                    const type = getHazardSeverity(sev);
+
+                    return {
+                        id: String(a.id),
+                        type,
+                        title: a.message.substring(0, 60) + (a.message.length > 60 ? '...' : ''),
+                        description: a.message,
+                        category: a.hazard_type ? (a.hazard_type.charAt(0).toUpperCase() + a.hazard_type.slice(1)) : 'Alert',
+                        timestamp: new Date(a.created_at),
+                        severity: sev,
+                        actionDestination: (a.hazard_lat && a.hazard_lon) ? {
+                            coordinates: [a.hazard_lon, a.hazard_lat],
+                            name: a.hazard_title || 'Hazard Location',
+                            icon: '⚠️'
+                        } : undefined,
+                        isRead: false,
+                    };
+                });
+                setAlerts(mapped);
+                setUnreadCount(mapped.filter(a => !a.isRead).length);
+            } else {
+                setAlerts([]);
+                setUnreadCount(0);
+            }
+        } catch (err) {
+            console.log('Failed to fetch alerts:', err);
+            setAlerts([]);
+        } finally {
+            setLoading(false);
+        }
+    }, [distanceKm]);
+
+    // Get location and fetch alerts
     useEffect(() => {
         if (!isAuthenticated) return;
-        let cancelled = false;
-        setLoading(true);
 
-        // Get location first
-        const fetchWithLocation = async () => {
+        (async () => {
             let lat, lon;
             try {
                 const { status } = await Location.requestForegroundPermissionsAsync();
@@ -48,59 +97,20 @@ export default function AlertsScreen() {
                     const loc = await Location.getCurrentPositionAsync({});
                     lat = loc.coords.latitude;
                     lon = loc.coords.longitude;
+                    setUserLoc({ lat, lon });
                 }
             } catch (e) {
                 console.log("Location error in alerts:", e);
             }
+            await fetchAlerts(lat, lon, distanceKm);
+        })();
+    }, [isAuthenticated, distanceKm]);
 
-            return getAlerts(lat, lon, 500);
-        };
-
-        fetchWithLocation()
-            .then((backendAlerts: BackendAlert[]) => {
-                if (cancelled) return;
-                if (backendAlerts.length > 0) {
-                    const mapped: AlertType[] = backendAlerts.map((a) => {
-                        const sev = a.hazard_severity || 0;
-                        const type = getHazardSeverity(sev);
-
-                        return {
-                            id: String(a.id),
-                            type,
-                            title: a.message.substring(0, 60) + (a.message.length > 60 ? '...' : ''),
-                            description: a.message,
-                            category: a.hazard_type ? (a.hazard_type.charAt(0).toUpperCase() + a.hazard_type.slice(1)) : 'Alert',
-                            timestamp: new Date(a.created_at),
-                            actionDestination: (a.hazard_lat && a.hazard_lon) ? {
-                                coordinates: [a.hazard_lon, a.hazard_lat],
-                                name: a.hazard_title || 'Hazard Location',
-                                icon: '⚠️'
-                            } : undefined,
-                            isRead: false,
-                        };
-                    });
-                    setAlerts(mapped);
-                    // Update global badge count
-                    setUnreadCount(mapped.filter(a => !a.isRead).length);
-                } else {
-                    setAlerts([]);
-                    setUnreadCount(0);
-                }
-            })
-            .catch((err) => {
-                console.log('Failed to fetch alerts:', err);
-                setAlerts([]);
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
-            });
-
-        return () => { cancelled = true; };
-    }, [isAuthenticated]);
-
-    const filteredAlerts = alerts.filter(
-        a => filter === 'all' || a.type === filter
-    );
+    // Apply client-side severity filter
+    const filteredAlerts = alerts.filter(a => {
+        if (filter === 'all') return true;
+        return a.type === filter;
+    });
 
     const markAsRead = (id: string) => {
         setAlerts(prev => {
@@ -122,14 +132,10 @@ export default function AlertsScreen() {
         }
     };
 
-    const getSeverityStylesLocal = (type: string) => getHazardSeverityStyles(type);
-
     const router = useRouter();
 
     const handleNavigate = (alert: AlertType) => {
-        // If alert has specific hazard location from backend
         if (alert.actionDestination) {
-            // Navigate to Map tab with params
             router.push({
                 pathname: '/(tabs)/map',
                 params: {
@@ -154,37 +160,101 @@ export default function AlertsScreen() {
                 </View>
             </View>
 
-            {/* Filter Chips */}
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.filterScroll}
-                contentContainerStyle={styles.filterContainer}
+            {/* Distance + Severity Filters Row */}
+            <View style={styles.filterRow}>
+                {/* Distance Picker Button */}
+                <TouchableOpacity
+                    style={styles.distanceButton}
+                    onPress={() => setShowDistancePicker(true)}
+                >
+                    <Ionicons name="location-outline" size={14} color="#9ca3af" />
+                    <Text style={styles.distanceButtonText}>{distanceKm} km</Text>
+                    <Ionicons name="chevron-down" size={12} color="#9ca3af" />
+                </TouchableOpacity>
+
+                {/* Severity Filter Chips */}
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.filterChips}
+                >
+                    {SEVERITY_FILTERS.map((f) => (
+                        <TouchableOpacity
+                            key={f.id}
+                            style={[
+                                styles.filterChip,
+                                filter === f.id && styles.filterChipActive
+                            ]}
+                            onPress={() => setFilter(f.id as FilterType)}
+                        >
+                            <Text style={[
+                                styles.filterLabel,
+                                filter === f.id && styles.filterLabelActive
+                            ]}>
+                                {f.label}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </ScrollView>
+            </View>
+
+            {/* Distance Modal */}
+            <Modal
+                visible={showDistancePicker}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowDistancePicker(false)}
             >
-                {FILTERS.map((f) => (
-                    <TouchableOpacity
-                        key={f.id}
-                        style={[
-                            styles.filterChip,
-                            filter === f.id && styles.filterChipActive
-                        ]}
-                        onPress={() => setFilter(f.id as FilterType)}
-                    >
-                        <Text style={[
-                            styles.filterLabel,
-                            filter === f.id && styles.filterLabelActive
-                        ]}>
-                            {f.label}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
-            </ScrollView>
+                <Pressable
+                    style={styles.modalOverlay}
+                    onPress={() => setShowDistancePicker(false)}
+                >
+                    <View style={styles.modalContent}>
+                        <Text style={styles.modalTitle}>Filter by Distance</Text>
+                        {DISTANCE_OPTIONS.map((opt) => (
+                            <TouchableOpacity
+                                key={opt.value}
+                                style={[
+                                    styles.distanceOption,
+                                    distanceKm === opt.value && styles.distanceOptionActive
+                                ]}
+                                onPress={() => {
+                                    setDistanceKm(opt.value);
+                                    setShowDistancePicker(false);
+                                }}
+                            >
+                                <Text style={[
+                                    styles.distanceOptionText,
+                                    distanceKm === opt.value && styles.distanceOptionTextActive
+                                ]}>{opt.label}</Text>
+                                {distanceKm === opt.value && (
+                                    <Ionicons name="checkmark" size={18} color="#3b82f6" />
+                                )}
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                </Pressable>
+            </Modal>
 
             {/* Alerts List */}
             <ScrollView
                 style={styles.alertsList}
                 contentContainerStyle={styles.alertsContent}
             >
+                {loading && (
+                    <View style={styles.loadingBox}>
+                        <Text style={styles.loadingText}>Loading alerts...</Text>
+                    </View>
+                )}
+
+                {!loading && filteredAlerts.length === 0 && (
+                    <View style={styles.emptyBox}>
+                        <Ionicons name="checkmark-circle" size={48} color="#22c55e" />
+                        <Text style={styles.emptyTitle}>All Clear</Text>
+                        <Text style={styles.emptySubtext}>No alerts within {distanceKm} km of your location</Text>
+                    </View>
+                )}
+
                 {filteredAlerts.map((alert) => {
                     const severity = getHazardSeverityStyles(alert.type);
                     return (
@@ -286,11 +356,76 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '600',
     },
-    filterScroll: {
-        maxHeight: 50,
-    },
-    filterContainer: {
+    // --- Filter Row ---
+    filterRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
         paddingHorizontal: 16,
+        paddingVertical: 8,
+        gap: 10,
+    },
+    distanceButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.12)',
+    },
+    distanceButtonText: {
+        color: '#d1d5db',
+        fontSize: 13,
+        fontWeight: '600',
+    },
+    // --- Modal ---
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modalContent: {
+        backgroundColor: '#1f2937',
+        borderRadius: 16,
+        paddingVertical: 12,
+        paddingHorizontal: 8,
+        width: 260,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.15)',
+    },
+    modalTitle: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: '700',
+        textAlign: 'center',
+        marginBottom: 8,
+        paddingBottom: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    },
+    distanceOption: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        borderRadius: 10,
+    },
+    distanceOptionActive: {
+        backgroundColor: 'rgba(59, 130, 246, 0.15)',
+    },
+    distanceOptionText: {
+        color: '#d1d5db',
+        fontSize: 15,
+    },
+    distanceOptionTextActive: {
+        color: '#3b82f6',
+        fontWeight: '700',
+    },
+    filterChips: {
         gap: 8,
     },
     filterChip: {
@@ -310,13 +445,37 @@ const styles = StyleSheet.create({
     filterLabelActive: {
         color: '#fff',
     },
+    // --- Alerts List ---
     alertsList: {
         flex: 1,
-        marginTop: 12,
+        marginTop: 4,
     },
     alertsContent: {
         padding: 16,
         gap: 12,
+        paddingBottom: 60,
+    },
+    loadingBox: {
+        alignItems: 'center',
+        paddingVertical: 40,
+    },
+    loadingText: {
+        color: '#9ca3af',
+        fontSize: 14,
+    },
+    emptyBox: {
+        alignItems: 'center',
+        paddingVertical: 60,
+        gap: 8,
+    },
+    emptyTitle: {
+        color: '#fff',
+        fontSize: 20,
+        fontWeight: '700',
+    },
+    emptySubtext: {
+        color: '#6b7280',
+        fontSize: 14,
     },
     alertCard: {
         borderRadius: BorderRadius.lg,
@@ -407,3 +566,4 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
 });
+

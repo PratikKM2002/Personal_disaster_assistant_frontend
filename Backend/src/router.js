@@ -9,6 +9,7 @@ const { userRoutes } = require('./routes/user');
 const { communityRoutes } = require('./routes/community');
 const { alertRoutes } = require('./routes/alerts');
 const { shelterRoutes } = require('./routes/shelters');
+const { sosRoutes } = require('./routes/sos');
 
 async function router(req, res) {
   try {
@@ -38,6 +39,7 @@ async function router(req, res) {
     if (await communityRoutes(req, res, requireAuth)) return;
     if (await alertRoutes(req, res, requireAuth)) return;
     if (await shelterRoutes(req, res, requireAuth)) return;
+    if (await sosRoutes(req, res, requireAuth)) return;
 
     return send(res, 404, { error: 'Not Found' });
 

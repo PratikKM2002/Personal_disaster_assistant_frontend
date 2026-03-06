@@ -56,16 +56,19 @@ async function fetchFloodRisk(lat, lon) {
         });
 
         // --- Persistence Logic ---
-        // If today's risk is High, we save it as a hazard event
+        // If today's risk is High, save/update as a hazard event
         const today = forecast[0];
-        if (today && today.risk_level === 'high') {
-            const source_event_id = `GLOFAS_${rLat}_${rLon}_${today.date}`;
+        const source_event_id = `GLOFAS_${rLat}_${rLon}_${today?.date}`;
 
-            // Insert into hazard table
+        if (today && today.risk_level === 'high') {
+            // Upsert — update severity/attributes if conditions change
             await query(`
                 INSERT INTO hazard (type, severity, occurred_at, lat, lon, source, source_event_id, attributes)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                ON CONFLICT (source, source_event_id) DO NOTHING
+                ON CONFLICT (source, source_event_id) DO UPDATE
+                SET severity = EXCLUDED.severity,
+                    attributes = EXCLUDED.attributes,
+                    occurred_at = EXCLUDED.occurred_at
             `, [
                 'flood',
                 today.risk_score,
@@ -84,6 +87,13 @@ async function fetchFloodRisk(lat, lon) {
                         : "Elevated river discharge levels. Be cautious of ponding in low-lying areas and poor drainage."
                 })
             ]);
+        } else if (today) {
+            // Risk has dropped — remove any existing hazard for this location/date
+            await query(`
+                DELETE FROM hazard 
+                WHERE source = 'Copernicus GloFAS' 
+                  AND source_event_id = $1
+            `, [source_event_id]);
         }
 
         return {

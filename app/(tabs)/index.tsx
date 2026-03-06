@@ -1,3 +1,4 @@
+import SOSButton from '@/components/SOSButton';
 import SafetyStatusBar from '@/components/SafetyStatusBar';
 import { AppColors, BorderRadius } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
@@ -65,6 +66,7 @@ export default function HomeScreen() {
   const [currentUserLocation, setCurrentUserLocation] = useState<{ lat: number; lng: number }>({ lat: 37.765, lng: -122.42 });
   const [locationName, setLocationName] = useState('Locating...');
   const [floodRisk, setFloodRisk] = useState<any>(null);
+  const [fetchFailed, setFetchFailed] = useState(false);
 
   const getDist = (h: any) => {
     if (!h) return 1000;
@@ -155,6 +157,7 @@ export default function HomeScreen() {
 
       // Fetch overview and flood risk in parallel
       try {
+        setFetchFailed(false);
         const [overviewData, floodData] = await Promise.all([
           getOverview(lat, lon, 50),
           getFloodRisk(lat, lon)
@@ -170,6 +173,7 @@ export default function HomeScreen() {
         if (overviewData.weather) setWeather(overviewData.weather);
       } catch (err) {
         console.log('Data fetch failed', err);
+        setFetchFailed(true);
       }
     })();
   }, []);
@@ -287,8 +291,51 @@ export default function HomeScreen() {
           }}
         />
 
+        {/* Retry banner when data fetch fails */}
+        {fetchFailed && (
+          <TouchableOpacity
+            style={{
+              backgroundColor: 'rgba(239, 68, 68, 0.15)',
+              borderWidth: 1,
+              borderColor: 'rgba(239, 68, 68, 0.3)',
+              borderRadius: 12,
+              padding: 16,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 12,
+              marginBottom: 12,
+            }}
+            onPress={() => {
+              // Re-trigger data fetch
+              setFetchFailed(false);
+              (async () => {
+                try {
+                  const [overviewData, floodData] = await Promise.all([
+                    getOverview(currentUserLocation.lat, currentUserLocation.lng, 50),
+                    getFloodRisk(currentUserLocation.lat, currentUserLocation.lng)
+                  ]);
+                  const h = overviewData.hazards || [];
+                  setHazardCount(h.length);
+                  setHazards(h);
+                  setShelterCount(overviewData.shelters?.items?.length || 0);
+                  setFloodRisk(floodData);
+                  if (overviewData.stats) setStats(overviewData.stats);
+                  if (overviewData.weather) setWeather(overviewData.weather);
+                } catch {
+                  setFetchFailed(true);
+                }
+              })();
+            }}
+          >
+            <Ionicons name="warning" size={22} color="#ef4444" />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>Could not load data</Text>
+              <Text style={{ color: '#9ca3af', fontSize: 12 }}>Tap to retry</Text>
+            </View>
+            <Ionicons name="refresh" size={20} color="#ef4444" />
+          </TouchableOpacity>
+        )}
 
-        {/* Weather Widget */}
         <TouchableOpacity
           style={styles.weatherWidget}
           onPress={() => weather && setWeatherModalVisible(true)}
@@ -504,6 +551,9 @@ export default function HomeScreen() {
       >
         <Ionicons name="chatbubble-ellipses" size={24} color="#fff" />
       </TouchableOpacity>
+
+      {/* Floating SOS Button */}
+      <SOSButton />
 
       {/* Hazard Details Modal */}
       <Modal

@@ -3,7 +3,8 @@ import { ClerkProvider } from '@clerk/clerk-expo';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
+import * as Notifications from 'expo-notifications';
+import { Stack, router } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
@@ -11,6 +12,7 @@ import { Animated, StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
 import { AuthProvider } from '../contexts/AuthContext';
 
+import Toast from '@/components/Toast';
 import { AlertsProvider } from '@/contexts/AlertsContext';
 import { ActionSheetProvider } from '@expo/react-native-action-sheet';
 import '../services/backgroundTask';
@@ -55,6 +57,17 @@ export default function RootLayout() {
   useEffect(() => {
     if (error) throw error;
   }, [error]);
+
+  // Handle notification taps — route to relevant screen
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+      const data = response.notification.request.content.data;
+      if (data?.type === 'sos' || data?.type === 'geofence_alert') {
+        router.push('/family');
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (loaded) {
@@ -117,6 +130,9 @@ export default function RootLayout() {
                   {/* <Stack.Screen name="neighbors" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} /> */}
                   <Stack.Screen name="navigation" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
                 </Stack>
+
+                {/* Global Toast Notifications */}
+                <Toast />
 
                 {/* Custom Splash Screen Overlay */}
                 {!isSplashAnimationComplete && (
