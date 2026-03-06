@@ -5,6 +5,7 @@ echo "=== Installing dependencies ==="
 npm install
 
 echo "=== Running database migrations ==="
+node src/scripts/db-init.js
 node src/migrations/db-migrate-hazards.js
 node src/migrations/db-migrate-profile.js
 node src/migrations/db-migrate-alerts.js
