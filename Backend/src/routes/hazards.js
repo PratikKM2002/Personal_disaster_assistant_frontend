@@ -148,8 +148,8 @@ async function hazardRoutes(req, res, requireAuth) {
 
       let prepScore = 0;
       const user = profileRes.rows[0];
-      if (user.home_lat) prepScore += 2;
-      if (user.phone) prepScore += 2;
+      if (user?.home_lat) prepScore += 2;
+      if (user?.phone) prepScore += 2;
       if (familyTotal > 0) prepScore += 3;
       const allNeighborsRes = await query('SELECT COUNT(*) FROM user_neighbor WHERE user_id=$1', [auth.uid]);
       if (parseInt(allNeighborsRes.rows[0].count) > 0) prepScore += 3;
