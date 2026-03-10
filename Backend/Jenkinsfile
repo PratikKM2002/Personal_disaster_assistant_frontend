@@ -1,0 +1,101 @@
+pipeline {
+  agent any
+
+  environment {
+    APP_DIR = "Backend"
+    IMAGE = "pda-backend-ci"
+    TEST_PORT = "18000"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Install & Test') {
+      steps {
+        dir(env.APP_DIR) {
+          sh 'npm ci'
+          sh 'DISABLE_SCHEDULER=true npm test'
+        }
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        dir(env.APP_DIR) {
+          sh 'docker build -t $IMAGE:latest .'
+        }
+      }
+    }
+
+    stage('Smoke Test Container') {
+      steps {
+        dir(env.APP_DIR) {
+          sh '''
+            set -e
+
+            # Cleanup from previous runs
+            docker rm -f pda-backend-test >/dev/null 2>&1 || true
+            docker rm -f pda-pg >/dev/null 2>&1 || true
+            docker network rm pda-net >/dev/null 2>&1 || true
+
+            # Create isolated network
+            docker network create pda-net
+
+            # Start Postgres for the backend container (self-contained)
+            docker run -d --name pda-pg --network pda-net \
+              -e POSTGRES_DB=pda \
+              -e POSTGRES_USER=postgres \
+              -e POSTGRES_PASSWORD=postgres \
+              postgres:16
+
+            # Wait for Postgres to be ready
+            for i in $(seq 1 40); do
+              docker exec pda-pg pg_isready -U postgres -d pda >/dev/null 2>&1 && break
+              sleep 1
+            done
+
+            # Run backend container
+            docker run -d --name pda-backend-test --network pda-net \
+              -p ${TEST_PORT}:8000 \
+              --env DISABLE_SCHEDULER=true \
+              --env PORT=8000 \
+              --env PGHOST=pda-pg \
+              --env PGPORT=5432 \
+              --env PGDATABASE=pda \
+              --env PGUSER=postgres \
+              --env PGPASSWORD=postgres \
+              --env JWT_SECRET=test_secret \
+              --env OPENROUTER_API_KEY=dummy \
+              $IMAGE:latest
+
+            # Give server a moment to start
+            sleep 3
+
+            # Smoke test health endpoint
+            curl -f http://localhost:${TEST_PORT}/health
+
+            # Print last logs for visibility in Jenkins
+            docker logs pda-backend-test --tail=80
+
+            # Cleanup
+            docker rm -f pda-backend-test >/dev/null 2>&1 || true
+            docker rm -f pda-pg >/dev/null 2>&1 || true
+            docker network rm pda-net >/dev/null 2>&1 || true
+          '''
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      sh '''
+        docker rm -f pda-backend-test >/dev/null 2>&1 || true
+        docker rm -f pda-pg >/dev/null 2>&1 || true
+        docker network rm pda-net >/dev/null 2>&1 || true
+      '''
+    }
+  }
+}
