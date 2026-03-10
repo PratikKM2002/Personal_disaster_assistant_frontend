@@ -48,13 +48,14 @@ pipeline {
             docker rm -f pda-pg >/dev/null 2>&1 || true
             docker network rm pda-net >/dev/null 2>&1 || true
 
-            docker network create pda-net
+           docker network create pda-net
+            sleep 2
 
             docker run -d --name pda-pg --network pda-net \
-              -e POSTGRES_DB=pda \
-              -e POSTGRES_USER=postgres \
-              -e POSTGRES_PASSWORD=postgres \
-              postgres:16
+            -e POSTGRES_DB=pda \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            postgres:16
 
             for i in $(seq 1 40); do
               docker exec pda-pg pg_isready -U postgres -d pda >/dev/null 2>&1 && break
