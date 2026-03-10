@@ -1,6 +1,10 @@
 pipeline {
   agent any
 
+ tools {
+    nodejs 'node20'
+  }
+  
   environment {
     APP_DIR = "Backend"
     IMAGE = "pda-backend-ci"
