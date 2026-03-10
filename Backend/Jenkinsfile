@@ -1,10 +1,10 @@
 pipeline {
   agent any
 
- tools {
+  tools {
     nodejs 'node20'
   }
-  
+
   environment {
     APP_DIR = "Backend"
     IMAGE = "pda-backend-ci"
@@ -28,7 +28,11 @@ pipeline {
     stage('Build Docker Image') {
       steps {
         dir(env.APP_DIR) {
-          sh 'docker build -t $IMAGE:latest .'
+          sh '''
+            export PATH="/usr/local/bin:$PATH"
+            docker version
+            docker build -t $IMAGE:latest .
+          '''
         }
       }
     }
@@ -38,29 +42,25 @@ pipeline {
         dir(env.APP_DIR) {
           sh '''
             set -e
+            export PATH="/usr/local/bin:$PATH"
 
-            # Cleanup from previous runs
             docker rm -f pda-backend-test >/dev/null 2>&1 || true
             docker rm -f pda-pg >/dev/null 2>&1 || true
             docker network rm pda-net >/dev/null 2>&1 || true
 
-            # Create isolated network
             docker network create pda-net
 
-            # Start Postgres for the backend container (self-contained)
             docker run -d --name pda-pg --network pda-net \
               -e POSTGRES_DB=pda \
               -e POSTGRES_USER=postgres \
               -e POSTGRES_PASSWORD=postgres \
               postgres:16
 
-            # Wait for Postgres to be ready
             for i in $(seq 1 40); do
               docker exec pda-pg pg_isready -U postgres -d pda >/dev/null 2>&1 && break
               sleep 1
             done
 
-            # Run backend container
             docker run -d --name pda-backend-test --network pda-net \
               -p ${TEST_PORT}:8000 \
               --env DISABLE_SCHEDULER=true \
@@ -74,16 +74,11 @@ pipeline {
               --env OPENROUTER_API_KEY=dummy \
               $IMAGE:latest
 
-            # Give server a moment to start
             sleep 3
-
-            # Smoke test health endpoint
             curl -f http://localhost:${TEST_PORT}/health
 
-            # Print last logs for visibility in Jenkins
             docker logs pda-backend-test --tail=80
 
-            # Cleanup
             docker rm -f pda-backend-test >/dev/null 2>&1 || true
             docker rm -f pda-pg >/dev/null 2>&1 || true
             docker network rm pda-net >/dev/null 2>&1 || true
@@ -96,6 +91,7 @@ pipeline {
   post {
     always {
       sh '''
+        export PATH="/usr/local/bin:$PATH"
         docker rm -f pda-backend-test >/dev/null 2>&1 || true
         docker rm -f pda-pg >/dev/null 2>&1 || true
         docker network rm pda-net >/dev/null 2>&1 || true
