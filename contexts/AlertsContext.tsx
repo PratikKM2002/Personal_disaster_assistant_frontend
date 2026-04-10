@@ -44,7 +44,6 @@ export const AlertsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
     };
 
-    // Initial fetch
     useEffect(() => {
         if (isAuthenticated) {
             refreshAlerts();

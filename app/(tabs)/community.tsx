@@ -5,7 +5,7 @@ import {
     createCommunityResource,
     getCommunityResources,
     getNeighbors,
-    getUserProfile,
+    getProfile,
     removeNeighbor,
     updateStatus
 } from '@/services/api';
@@ -67,7 +67,7 @@ export default function CommunityScreen() {
             }
 
             const [profile, neighborList, resourceList] = await Promise.all([
-                getUserProfile(),
+                getProfile(),
                 getNeighbors(),
                 getCommunityResources(lat, lon, 50)
             ]);

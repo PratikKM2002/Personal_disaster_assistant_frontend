@@ -1,5 +1,4 @@
 import { AppColors, BorderRadius } from '@/constants/Colors';
-import { MOCK_NEIGHBORS } from '@/constants/Data';
 import { getStatusColor, makePhoneCall, sendSMS } from '@/utils';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -15,7 +14,8 @@ import {
 } from 'react-native';
 
 export default function NeighborsScreen() {
-    const [neighbors, setNeighbors] = useState(MOCK_NEIGHBORS);
+    // TODO: Fetch neighbors from backend like community.tsx does
+    const [neighbors, setNeighbors] = useState<any[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedFilter, setSelectedFilter] = useState('all');
 

@@ -3,7 +3,7 @@ import { registerForPushNotificationsAsync } from '@/utils/push-notifications';
 import { useAuth as useClerkAuth, useSSO, useSignIn, useSignUp, useUser } from '@clerk/clerk-expo';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
-import React, { createContext, useCallback, useContext } from 'react';
+import React, { createContext, useCallback, useContext, useEffect } from 'react';
 import { Platform } from 'react-native';
 
 // Warm up browser for Android
@@ -39,7 +39,7 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-    const { isLoaded, isSignedIn, signOut } = useClerkAuth();
+    const { isLoaded, isSignedIn, signOut, getToken } = useClerkAuth();
     const { user: clerkUser } = useUser();
     const { startSSOFlow } = useSSO();
     const { signIn, setActive: setSignInActive, isLoaded: signInLoaded } = useSignIn();
@@ -55,26 +55,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         : null;
 
-    // Automatically sync user to backend when authenticated
-    React.useEffect(() => {
-        if (isSignedIn && user) {
-            console.log('Syncing Google user to backend:', user.email);
-            api.syncGoogleUser(user.email, user.name)
-                .then(({ token }) => {
-                    console.log('Sync successful, setting auth token');
-                    api.setAuthToken(token);
+    // Register the token provider synchronously so it's guaranteed to be available
+    // BEFORE any child component's useEffect fires (like HomeScreen fetching alerts).
+    api.setTokenProvider(() => getToken(), user);
 
-                    // Register for Push Notifications
-                    registerForPushNotificationsAsync().then(pushToken => {
-                        if (pushToken) {
-                            console.log("Syncing push token...", pushToken);
-                            api.updatePushToken(pushToken).catch(e => console.error("Push token sync failed:", e));
-                        }
-                    });
-                })
-                .catch(err => console.error('Sync failed:', err));
+    // Handle push notifications setup when authenticated
+    useEffect(() => {
+        if (isSignedIn) {
+            registerForPushNotificationsAsync().then(pushToken => {
+                if (pushToken) {
+                    console.log("Push token ready:", pushToken);
+                    api.updatePushToken(pushToken).catch(e => console.error("Push token sync failed:", e));
+                }
+            });
         }
-    }, [isSignedIn, user?.email]);
+    }, [isSignedIn]);
 
     const login = useCallback(
         async (email: string, password: string) => {
@@ -105,11 +100,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 password,
             });
 
-            // Clerk may require email verification
             if (result.status === 'complete' && result.createdSessionId) {
                 await setSignUpActive!({ session: result.createdSessionId });
             } else if (result.status === 'missing_requirements') {
-                // Need email verification — prepare and send
                 await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
                 throw new Error(
                     'Please check your email for a verification code. Email verification is required.'

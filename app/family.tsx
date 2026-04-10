@@ -1,7 +1,7 @@
 import NativeMap from '@/components/NativeMap';
 import { AppColors, BorderRadius } from '@/constants/Colors';
 import { MOCK_USER_LOCATION } from '@/constants/Data';
-import { createFamily, FamilyMember, getFamilyMembers, getUserProfile, joinFamily, leaveFamily, removeFamilyMember, updateStatus } from '@/services/api';
+import { createFamily, FamilyMember, getFamilyMembers, joinFamily, leaveFamily, removeFamilyMember, updateStatus } from '@/services/api';
 import { formatTimeAgo, getStatusColor, makePhoneCall, openGoogleMapsNavigation, sendSMS } from '@/utils';
 import { Ionicons } from '@expo/vector-icons';
 import * as Battery from 'expo-battery';
@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LOCATION_BATTERY_TASK } from '../services/backgroundTask'; // This also registers the task
+import { useAuth } from '@/contexts/AuthContext';
 
 type ViewType = 'list' | 'map';
 
@@ -78,11 +79,14 @@ export default function FamilyScreen() {
         });
     };
 
+    const { isAuthenticated } = useAuth();
+
     useEffect(() => {
+        if (!isAuthenticated) return;
         loadFamily();
         getLocation();
         startBackgroundUpdates();
-    }, []);
+    }, [isAuthenticated]);
 
     const startBackgroundUpdates = async () => {
         if (Platform.OS === 'web') return;
@@ -111,8 +115,7 @@ export default function FamilyScreen() {
         setLoading(true);
         try {
             const data = await getFamilyMembers();
-            const me = await getUserProfile();
-            setIsAdmin(me.role === 'admin');
+            setIsAdmin(data.my_role === 'admin');
 
             if (!data.family_id) {
                 // No family at all -> Show Join/Create UI
