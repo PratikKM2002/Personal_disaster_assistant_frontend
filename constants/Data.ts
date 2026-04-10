@@ -20,71 +20,11 @@ export const MOCK_USER: UserProfile = {
     ]
 };
 
-// Hazard Zones - Removed (Fetching from Backend)
-export const DUMMY_HAZARDS: Hazard[] = [];
+// Hazard Zones — now fetched from backend
+// Family Members — now fetched from backend
+// Alerts — now fetched from backend
+// Nearby Resources — now fetched from backend
 
-// Family Members - Removed (Fetching from Backend)
-export const MOCK_FAMILY: FamilyMember[] = [];
-
-// Neighbors
-export const MOCK_NEIGHBORS: Neighbor[] = [
-    {
-        id: '1',
-        name: 'Sarah K.',
-        distance: '50 ft',
-        status: 'safe',
-        lastUpdate: '5 min ago',
-        apartment: 'Apt 18',
-        canOffer: ['First Aid', 'Water'],
-        phone: '+1 (555) 123-4567'
-    },
-    {
-        id: '2',
-        name: 'Robert M.',
-        distance: '100 ft',
-        status: 'needs-help',
-        lastUpdate: '2 min ago',
-        apartment: 'Apt 24',
-        specialNeeds: 'Wheelchair user',
-        needs: ['Transport', 'Medication'],
-        phone: '+1 (555) 234-5678'
-    },
-    {
-        id: '3',
-        name: 'Maria G.',
-        distance: '150 ft',
-        status: 'offering-help',
-        lastUpdate: '10 min ago',
-        apartment: 'Apt 8',
-        canOffer: ['Transport', 'Shelter'],
-        phone: '+1 (555) 345-6789'
-    },
-    {
-        id: '4',
-        name: 'James L.',
-        distance: '200 ft',
-        status: 'unknown',
-        lastUpdate: '1 hour ago',
-        apartment: 'Apt 31',
-        phone: '+1 (555) 456-7890'
-    },
-    {
-        id: '5',
-        name: 'Lin W.',
-        distance: '75 ft',
-        status: 'safe',
-        lastUpdate: '15 min ago',
-        apartment: 'Apt 12',
-        canOffer: ['Food', 'Pet care'],
-        phone: '+1 (555) 567-8901'
-    },
-];
-
-// Alerts - Removed (Fetching from Backend)
-export const MOCK_ALERTS: Alert[] = [];
-
-// Nearby Resources - Removed (Fetching from Backend)
-export const MOCK_RESOURCES: Resource[] = [];
 
 // Shared Resources
 export const MOCK_SHARED_RESOURCES: SharedResource[] = [
