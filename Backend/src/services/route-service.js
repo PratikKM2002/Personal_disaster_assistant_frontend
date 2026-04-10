@@ -1,5 +1,6 @@
 const fetch = require('node-fetch');
 const { pool } = require('../config/db');
+const { validateCoords } = require('../utils/validate');
 
 // Map frontend mode names to OSRM profile names
 const OSRM_PROFILES = {
@@ -10,13 +11,13 @@ const OSRM_PROFILES = {
     bike: 'bike',
 };
 
-// Hazard danger radii in km by severity (used for avoidance scoring)
-const HAZARD_RADIUS_KM = {
-    critical: 8,
-    high: 5,
-    moderate: 3,
-    low: 2,
-};
+// Hazard danger radii in km by severity (numeric 0-1 scale)
+function getHazardRadiusKm(severity) {
+    if (severity >= 0.8) return 8;  // critical
+    if (severity >= 0.6) return 5;  // high
+    if (severity >= 0.3) return 3;  // moderate
+    return 2;                       // low
+}
 
 // Average speeds in km/h for duration estimation
 // (OSRM public server only serves driving profile, so we recalculate for other modes)
@@ -27,6 +28,13 @@ const MODE_SPEEDS_KMH = {
 };
 
 async function getSafeRoute(startLat, startLon, endLat, endLon, mode = 'driving') {
+    // Validate all coordinates
+    const startCoords = validateCoords(startLat, startLon);
+    const endCoords = validateCoords(endLat, endLon);
+    if (!startCoords || !endCoords) {
+        throw new Error('Invalid coordinates provided');
+    }
+
     // Always use 'driving' profile on OSRM public (only one available)
     // but recalculate duration for walking/cycling based on realistic speeds
     const profile = 'driving';
@@ -74,7 +82,7 @@ async function getSafeRoute(startLat, startLon, endLat, endLon, mode = 'driving'
         const warnings = [];
 
         for (const hazard of hazards) {
-            const dangerRadius = HAZARD_RADIUS_KM[hazard.severity] || 5;
+            const dangerRadius = getHazardRadiusKm(hazard.severity);
             let isDangerous = false;
             let closestDist = Infinity;
 
@@ -103,7 +111,7 @@ async function getSafeRoute(startLat, startLon, endLat, endLon, mode = 'driving'
         let dangerScore = 0;
         for (const w of warnings) {
             const sev = w.hazard.severity;
-            dangerScore += sev === 'critical' ? 10 : sev === 'high' ? 5 : sev === 'moderate' ? 2 : 1;
+            dangerScore += sev >= 0.8 ? 10 : sev >= 0.6 ? 5 : sev >= 0.3 ? 2 : 1;
         }
 
         return {

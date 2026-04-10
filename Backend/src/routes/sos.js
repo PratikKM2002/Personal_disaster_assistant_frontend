@@ -3,17 +3,19 @@ const { send } = require('../utils/send');
 const { match } = require('../utils/url');
 const { query } = require('../config/db');
 const fetch = require('node-fetch');
+const { validateCoords } = require('../utils/validate');
 
 async function sosRoutes(req, res, requireAuth) {
     // -------- SOS: TRIGGER EMERGENCY
     {
         const m = match(req.method, req.url, { method: 'POST', path: '/sos' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const body = await parseJson(req);
             const { lat, lon } = body || {};
-            if (lat === undefined || lon === undefined) {
-                return send(res, 400, { error: 'lat and lon required' });
+            const coords = validateCoords(lat, lon);
+            if (!coords) {
+                return send(res, 400, { error: 'Valid lat (-90 to 90) and lon (-180 to 180) required' });
             }
 
             // 1. Update the user's safety status to 'danger'

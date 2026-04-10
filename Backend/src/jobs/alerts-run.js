@@ -3,15 +3,15 @@ const { query } = require('../config/db');
 const LOOKBACK_MINUTES = Number(process.env.ALERT_LOOKBACK_MINUTES || 60);
 
 /**
- * Radius rule (km) for earthquakes:
- *  - base 15 km, grows with magnitude (~10 km per magnitude)
+ * Radius rule (km) for hazard alerts:
+ *  - Earthquakes: base 15 km, grows ~10 km per magnitude
+ *  - Other hazards: 50 km default
  */
-// function radiusKmExpr() {
-//   return `GREATEST(15, 10 * COALESCE((h.attributes->>'magnitude')::numeric, 3))`;
-// }
-
 function radiusKmExpr() {
-  return `500`;
+  return `CASE
+    WHEN h.type = 'earthquake' THEN GREATEST(15, 10 * COALESCE((h.attributes->>'magnitude')::numeric, 3))
+    ELSE 50
+  END`;
 }
 
 
@@ -33,6 +33,7 @@ async function runAlerts() {
     const params = [h.id];
 
     // compute distance for every user_place/live location; filter by dynamic radius
+    const radiusExpr = radiusKmExpr();
     const candidates = await query(
       `
       WITH target_hazard AS (
@@ -40,6 +41,9 @@ async function runAlerts() {
                COALESCE((attributes->>'magnitude')::numeric, NULL) AS mag,
                attributes->>'title' as title
         FROM hazard WHERE id = $1
+      ),
+      h AS (
+        SELECT * FROM hazard WHERE id = $1
       ),
       places AS (
         SELECT
@@ -53,7 +57,7 @@ async function runAlerts() {
               )
             )
           ) AS dist_km,
-          500 AS radius_km,
+          (SELECT ${radiusExpr} FROM h) AS radius_km,
           (SELECT mag FROM target_hazard) AS magnitude,
           (SELECT type FROM target_hazard) AS h_type,
           (SELECT title FROM target_hazard) AS h_title
@@ -71,7 +75,7 @@ async function runAlerts() {
               )
             )
           ) AS dist_km,
-          500 AS radius_km,
+          (SELECT ${radiusExpr} FROM h) AS radius_km,
           (SELECT mag FROM target_hazard) AS magnitude,
           (SELECT type FROM target_hazard) AS h_type,
           (SELECT title FROM target_hazard) AS h_title

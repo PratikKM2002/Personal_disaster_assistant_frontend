@@ -16,57 +16,8 @@ const RESOURCES_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours (static data most
 const ALERTS_INTERVAL_MS = 1 * 60 * 1000; // 1 minute
 
 function startScheduler() {
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     console.log('[Scheduler] Starting background tasks...');
+
 
     // Run immediately
     safeRun(ingestUSGS, 'USGS Ingest');

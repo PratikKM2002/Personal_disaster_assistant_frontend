@@ -7,7 +7,7 @@ async function init() {
       id BIGSERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
+      password_hash TEXT,
       phone TEXT,
       created_at TIMESTAMPTZ DEFAULT now()
     );

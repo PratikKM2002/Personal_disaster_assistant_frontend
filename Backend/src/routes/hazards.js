@@ -10,7 +10,7 @@ async function hazardRoutes(req, res, requireAuth) {
   {
     const m = match(req.method, req.url, { method: 'GET', path: '/overview' });
     if (m) {
-      const auth = requireAuth();
+      const auth = await requireAuth();
       const lat = Number(m.search.get('lat'));
       const lon = Number(m.search.get('lon'));
       const radiusKm = Number(m.search.get('radius_km') || 100);
@@ -179,12 +179,28 @@ async function hazardRoutes(req, res, requireAuth) {
     if (m) {
       const lat = Number(m.search.get('lat'));
       const lon = Number(m.search.get('lon'));
-      const type = m.search.get('type') || 'earthquake';
+      const type = m.search.get('type') || null; // null = all types
       const radiusKm = Number(m.search.get('radius_km') || 50);
       const since = m.search.get('since');
 
       if (Number.isNaN(lat) || Number.isNaN(lon)) {
         return send(res, 400, { error: 'lat and lon (numbers) are required' });
+      }
+
+      // Build dynamic WHERE clauses and params
+      const params = [lat, lon, radiusKm];
+      let paramIdx = 4;
+      let typeClause = '';
+      if (type) {
+        typeClause = `AND h.type = $${paramIdx}`;
+        params.push(type);
+        paramIdx++;
+      }
+      let sinceClause = '';
+      if (since) {
+        sinceClause = `AND h.occurred_at >= $${paramIdx}`;
+        params.push(since);
+        paramIdx++;
       }
 
       const sql = `
@@ -207,9 +223,9 @@ async function hazardRoutes(req, res, requireAuth) {
                 )
               ) AS dist_km
             FROM hazard h
-            WHERE h.type = $4
-            AND h.occurred_at >= NOW() - INTERVAL '48 hours'
-            ${since ? `AND h.occurred_at >= $5` : ``}
+            WHERE h.occurred_at >= NOW() - INTERVAL '48 hours'
+            ${typeClause}
+            ${sinceClause}
           )
           SELECT *
           FROM calc
@@ -217,7 +233,6 @@ async function hazardRoutes(req, res, requireAuth) {
           ORDER BY occurred_at DESC
           LIMIT 200;
         `;
-      const params = since ? [lat, lon, radiusKm, type, since] : [lat, lon, radiusKm, type];
       const r = await query(sql, params);
       send(res, 200, r.rows);
       return true;
