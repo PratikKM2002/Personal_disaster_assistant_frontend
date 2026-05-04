@@ -36,14 +36,14 @@ async function fetchSupplies() {
 
         const text = await res.text();
         if (!res.ok) {
-            throw new Error(`Overpass API failed: ${ res.status } ${ res.statusText } \nBody: ${ text.substring(0, 200) } `);
+            throw new Error(`Overpass API failed: ${res.status} ${res.statusText} \nBody: ${text.substring(0, 200)} `);
         }
 
         try {
             const data = JSON.parse(text);
             return data.elements || [];
         } catch (e) {
-            throw new Error(`Failed to parse JSON: ${ text.substring(0, 100) } `);
+            throw new Error(`Failed to parse JSON: ${text.substring(0, 100)} `);
         }
     } catch (err) {
         clearTimeout(timeout);
@@ -58,7 +58,7 @@ async function upsertSupply(client, node) {
 
     if (!node.tags || !lat || !lon) return;
 
-    const name = node.tags.name || `${ node.tags.shop || node.tags.amenity || 'Supply' } ${ node.id } `;
+    const name = node.tags.name || `${node.tags.shop || node.tags.amenity || 'Supply'} ${node.id} `;
     const address = [
         node.tags['addr:housenumber'],
         node.tags['addr:street'],
@@ -68,25 +68,38 @@ async function upsertSupply(client, node) {
 
     const phone = node.tags.phone || node.tags['contact:phone'] || null;
 
-    // Use ON CONFLICT to handle duplicates cleanly
-    await client.query(
-        `INSERT INTO shelter (name, address, lat, lon, capacity, type, status, phone, category)
-         VALUES ($1, $2, $3, $4, 0, 'supply', 'active', $5, 'supply')
-         ON CONFLICT (name, lat, lon) DO UPDATE SET
-           address = EXCLUDED.address,
-           phone = EXCLUDED.phone,
-           category = 'supply',
-           status = 'active',
-           updated_at = NOW()`,
-        [name, address, lat, lon, phone]
+    // Check existence by Name + Location (Approx)
+    const existing = await client.query(
+        `SELECT id FROM shelter
+WHERE(name = $1 OR(lat BETWEEN $2 - 0.0001 AND $2 + 0.0001 AND lon BETWEEN $3 - 0.0001 AND $3 + 0.0001))
+     AND type = 'supply'`,
+        [name, lat, lon]
     );
+
+    if (existing.rows.length > 0) {
+        const id = existing.rows[0].id;
+        await client.query(
+            `UPDATE shelter SET
+name = $1, address = $2, lat = $3, lon = $4,
+    type = 'supply', status = 'active', phone = $5, category = 'supply', updated_at = NOW()
+       WHERE id = $6`,
+            [name, address, lat, lon, phone, id]
+        );
+    } else {
+        await client.query(
+            `INSERT INTO shelter(
+        name, address, lat, lon, capacity, type, status, phone, category
+    ) VALUES($1, $2, $3, $4, 0, 'supply', 'active', $5, 'supply')`,
+            [name, address, lat, lon, phone]
+        );
+    }
 }
 
 async function main() {
     const client = await pool.connect();
     try {
         const elements = await fetchSupplies();
-        console.log(`Fetched ${ elements.length } supply elements.`);
+        console.log(`Fetched ${elements.length} supply elements.`);
 
         let count = 0;
         await client.query('BEGIN');
@@ -97,7 +110,7 @@ async function main() {
             }
         }
         await client.query('COMMIT');
-        console.log(`Successfully ingested ${ count } supply locations.`);
+        console.log(`Successfully ingested ${count} supply locations.`);
     } catch (err) {
         await client.query('ROLLBACK');
         console.error('Error ingest supplies:', err);
