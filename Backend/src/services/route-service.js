@@ -1,6 +1,9 @@
 const fetch = require('node-fetch');
-const { pool } = require('../config/db');
+const { pool, query } = require('../config/db');
 const { validateCoords } = require('../utils/validate');
+
+const OSRM_TIMEOUT_MS = 10000; // 10 seconds
+const HAZARD_QUERY_TIMEOUT_MS = 8000;
 
 // Map frontend mode names to OSRM profile names
 const OSRM_PROFILES = {
@@ -43,7 +46,17 @@ async function getSafeRoute(startLat, startLon, endLat, endLon, mode = 'driving'
     const url = `https://router.project-osrm.org/route/v1/${profile}/${startLon},${startLat};${endLon},${endLat}?overview=full&geometries=geojson&steps=true&alternatives=3`;
 
     console.log(`[Router] Fetching OSRM (mode=${mode}): ${url}`);
-    const res = await fetch(url);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), OSRM_TIMEOUT_MS);
+    let res;
+    try {
+        res = await fetch(url, { signal: controller.signal });
+    } catch (err) {
+        if (err.name === 'AbortError') throw new Error('OSRM routing service timed out');
+        throw err;
+    } finally {
+        clearTimeout(timeout);
+    }
     const data = await res.json();
 
     if (data.code !== 'Ok') {

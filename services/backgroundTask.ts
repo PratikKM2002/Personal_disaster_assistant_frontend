@@ -67,3 +67,16 @@ export async function startBackgroundLocation() {
     console.log('[Background] Location tracking started.');
 }
 
+/**
+ * Stop background location tracking.
+ * Call this when user logs out or disables location sharing.
+ */
+export async function stopBackgroundLocation() {
+    const isStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_BATTERY_TASK).catch(() => false);
+    if (isStarted) {
+        await Location.stopLocationUpdatesAsync(LOCATION_BATTERY_TASK);
+        console.log('[Background] Location tracking stopped.');
+    } else {
+        console.log('[Background] Location tracking was not running.');
+    }
+}

@@ -42,6 +42,7 @@ export function setTokenProvider(provider: () => Promise<string | null>, userInf
 const MAX_RETRIES = 2;
 const BASE_DELAY_MS = 1000;   // 1s, then 2s
 const REQUEST_TIMEOUT_MS = 15000;
+const CHAT_TIMEOUT_MS = 30000; // Chat AI needs more time
 
 // --- HTTP Helpers ---
 
@@ -51,6 +52,9 @@ async function request<T>(
     auth = false,
     silent = false
 ): Promise<T> {
+    // Use longer timeout for chat endpoint
+    const timeoutMs = path.startsWith('/chat') ? CHAT_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+
     // Check network connectivity first
     const netState = await NetInfo.fetch();
     if (!netState.isConnected) {
@@ -81,7 +85,7 @@ async function request<T>(
         try {
             // Timeout via AbortController
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+            const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
             const res = await fetch(`${API_BASE_URL}${path}`, {
                 ...options,
@@ -126,7 +130,7 @@ async function request<T>(
                 lastError = new ApiError(err.message || 'Network error', 0);
             }
 
-            // Retry on network/timeout errors (not on 4xx)
+            // Retry on network/timeout errors (not on 4xx client errors)
             if (attempt < MAX_RETRIES && !(lastError instanceof ApiError && (lastError as ApiError).status >= 400 && (lastError as ApiError).status < 500)) {
                 await delay(BASE_DELAY_MS * Math.pow(2, attempt));
                 continue;
@@ -185,11 +189,11 @@ export async function updateProfile(data: { phone?: string; blood_type?: string 
 }
 
 export async function addEmergencyContact(contact: { name: string; phone: string; relationship?: string; is_primary?: boolean }): Promise<EmergencyContact> {
-    return request('/user/contacts', { method: 'POST', body: JSON.stringify(contact) });
+    return request('/user/contacts', { method: 'POST', body: JSON.stringify(contact) }, true);
 }
 
 export async function deleteEmergencyContact(id: number): Promise<{ success: boolean }> {
-    return request(`/user/contacts/${id}`, { method: 'DELETE' });
+    return request(`/user/contacts/${id}`, { method: 'DELETE' }, true);
 }
 
 // --- Hazards ---
@@ -533,7 +537,7 @@ export async function getRoute(
         geometry: JSON.stringify(route.geometry),
         distance: route.distance,
         duration: route.duration,
-        steps: route.legs[0].steps.map((s: any) => ({
+        steps: (route.legs?.[0]?.steps || []).map((s: any) => ({
             distance: s.distance,
             duration: s.duration,
             instruction: s.maneuver?.instruction || 'Continue',

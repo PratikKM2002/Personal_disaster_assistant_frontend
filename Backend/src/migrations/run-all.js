@@ -14,6 +14,8 @@ async function run() {
     './db-migrate-resources',
     './db-migrate-safety',
 
+    './db-migrate-hazard-details',
+
     './db-migrate-push-token',
     './db-migrate-chat-history',
 

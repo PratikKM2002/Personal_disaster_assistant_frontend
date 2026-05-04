@@ -123,7 +123,7 @@ async function hazardRoutes(req, res, requireAuth) {
         }
       }
 
-      const [neighborRes, resourceRes, familyRes, profileRes] = await Promise.all([
+      const [neighborRes, resourceRes, familyRes, profileRes, allNeighborsRes] = await Promise.all([
         query(`
              SELECT COUNT(*) as count FROM user_neighbor un 
              JOIN user_account u ON un.neighbor_id = u.id 
@@ -138,7 +138,8 @@ async function hazardRoutes(req, res, requireAuth) {
              WHERE family_id = (SELECT family_id FROM user_account WHERE id = $1)
                AND family_id IS NOT NULL
            `, [auth.uid]),
-        query(`SELECT * FROM user_account WHERE id = $1`, [auth.uid])
+        query(`SELECT * FROM user_account WHERE id = $1`, [auth.uid]),
+        query('SELECT COUNT(*) FROM user_neighbor WHERE user_id=$1', [auth.uid])
       ]);
 
       const neighborsSafe = parseInt(neighborRes.rows[0].count);
@@ -151,7 +152,6 @@ async function hazardRoutes(req, res, requireAuth) {
       if (user?.home_lat) prepScore += 2;
       if (user?.phone) prepScore += 2;
       if (familyTotal > 0) prepScore += 3;
-      const allNeighborsRes = await query('SELECT COUNT(*) FROM user_neighbor WHERE user_id=$1', [auth.uid]);
       if (parseInt(allNeighborsRes.rows[0].count) > 0) prepScore += 3;
 
       const stats = {

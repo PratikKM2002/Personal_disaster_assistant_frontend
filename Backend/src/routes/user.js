@@ -16,12 +16,22 @@ async function userRoutes(req, res, requireAuth) {
             const coords = validateCoords(lat, lon);
             if (!coords) return send(res, 400, { error: 'Valid lat (-90 to 90) and lon (-180 to 180) required' });
 
-            await query(
-                `UPDATE user_account 
-           SET last_lat=$1, last_lon=$2, safety_status=$3, battery_level=$4, safety_message=$5, last_location_update=NOW()
-           WHERE id=$6`,
-                [lat, lon, status || 'safe', battery_level || null, message || null, auth.uid]
-            );
+            // Only update safety_status when explicitly provided (background loc updates send undefined)
+            if (status) {
+                await query(
+                    `UPDATE user_account 
+               SET last_lat=$1, last_lon=$2, safety_status=$3, battery_level=$4, safety_message=$5, last_location_update=NOW()
+               WHERE id=$6`,
+                    [lat, lon, status, battery_level || null, message || null, auth.uid]
+                );
+            } else {
+                await query(
+                    `UPDATE user_account 
+               SET last_lat=$1, last_lon=$2, battery_level=$3, last_location_update=NOW()
+               WHERE id=$4`,
+                    [lat, lon, battery_level || null, auth.uid]
+                );
+            }
 
             // Optional: Background reverse geocoding
             reverseGeocode(lat, lon).then(addr => {

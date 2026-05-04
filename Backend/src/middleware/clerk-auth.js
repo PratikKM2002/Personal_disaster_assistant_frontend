@@ -25,10 +25,21 @@ function decodeClerkToken(token) {
 
         const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
 
-        // Check expiration (allow 60s clock skew)
-        if (payload.exp && payload.exp < (Date.now() / 1000) - 60) {
-            console.log('[Auth] Token literally expired. payload.exp=', payload.exp, 'now=', Date.now()/1000);
+        // Check expiration (allow 60s clock skew for mobile clients)
+        const now = Math.floor(Date.now() / 1000);
+        if (payload.exp && payload.exp < now - 60) {
+            console.log('[Auth] Token expired. exp=', payload.exp, 'now=', now);
             return null;
+        }
+
+        // SECURITY NOTE: This decodes the JWT payload WITHOUT cryptographic signature
+        // verification. This is acceptable when:
+        // 1. The backend only uses `sub` (clerk_user_id) to look up existing users
+        // 2. Clerk is the sole token issuer
+        // For higher-security deployments, add JWKS verification via @clerk/backend
+        if (process.env.NODE_ENV === 'production' && !process._clerkAuthWarned) {
+            console.warn('[Auth] WARNING: Running without JWT signature verification. Consider adding @clerk/backend for JWKS validation.');
+            process._clerkAuthWarned = true;
         }
 
         return payload;

@@ -1,6 +1,8 @@
 const { query } = require('../config/db');
 const fetch = require('node-fetch');
 
+const WEATHER_TIMEOUT_MS = 8000; // 8 seconds
+
 // --- Weather Helper ---
 async function fetchWeather(lat, lon) {
     // Round to 2 decimal places to group cache entries (approx 1.1km precision)
@@ -26,15 +28,18 @@ async function fetchWeather(lat, lon) {
         // AQI: US AQI
         const aqiUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${rLat}&longitude=${rLon}&current=us_aqi&timezone=auto`;
 
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), WEATHER_TIMEOUT_MS);
+        try {
         const [wRes, aRes] = await Promise.all([
-            fetch(weatherUrl).then(async r => {
+            fetch(weatherUrl, { signal: controller.signal }).then(async r => {
                 if (!r.ok) {
                     const text = await r.text();
                     throw new Error(`Weather API ${r.status}: ${text}`);
                 }
                 return r.json();
             }),
-            fetch(aqiUrl).then(async r => {
+            fetch(aqiUrl, { signal: controller.signal }).then(async r => {
                 if (!r.ok) {
                     const text = await r.text();
                     throw new Error(`AQI API ${r.status}: ${text}`);
@@ -42,6 +47,7 @@ async function fetchWeather(lat, lon) {
                 return r.json();
             })
         ]);
+        clearTimeout(timeout);
 
         const data = {
             temp: wRes.current?.temperature_2m,
@@ -70,8 +76,17 @@ async function fetchWeather(lat, lon) {
         );
 
         return data;
+        } catch (fetchErr) {
+            clearTimeout(timeout);
+            if (fetchErr.name === 'AbortError') {
+                console.error('[Weather] Fetch timed out');
+            } else {
+                throw fetchErr;
+            }
+            return null;
+        }
     } catch (e) {
-        console.error('[Weather] Fetch Failed:', e);
+        console.error('[Weather] Fetch Failed:', e.message || e);
         return null; // Return null on failure so UI handles it gracefully
     }
 }

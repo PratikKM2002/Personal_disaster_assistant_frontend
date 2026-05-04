@@ -6,6 +6,9 @@ const pool = process.env.DATABASE_URL
     ssl: process.env.NODE_ENV === 'production'
       ? { rejectUnauthorized: true }
       : { rejectUnauthorized: false },
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
   })
   : new Pool({
     host: process.env.PGHOST || 'localhost',
@@ -13,6 +16,9 @@ const pool = process.env.DATABASE_URL
     database: process.env.PGDATABASE || 'pda',
     user: process.env.PGUSER || 'postgres',
     password: process.env.PGPASSWORD || 'postgres',
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
   });
 
 async function query(text, params) {

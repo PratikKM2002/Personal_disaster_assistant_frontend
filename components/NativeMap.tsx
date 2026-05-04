@@ -227,7 +227,7 @@ const NativeMap = React.forwardRef<any, NativeMapProps>(({
                 })()}
 
                 {/* Heatmap for Flash Hazards (Flood/Wildfire Corridor) */}
-                {hazards.length > 0 && (
+                {hazards.filter(h => h.type === 'flood' || h.type === 'wildfire').length > 0 && (
                     /* @ts-ignore */
                     <Heatmap
                         points={hazards.filter(h => h.type === 'flood' || h.type === 'wildfire').map(h => ({

@@ -54,9 +54,15 @@ function rateLimit(
     "unknown";
 
   const now = Date.now();
-  const timestamps = (hits.get(ip) || []).filter((t) => now - t < windowMs);
+  let timestamps = (hits.get(ip) || []).filter((t) => now - t < windowMs);
 
   timestamps.push(now);
+
+  // Cap array size to prevent memory bloat under sustained load
+  if (timestamps.length > max + 10) {
+    timestamps = timestamps.slice(-max - 1);
+  }
+
   hits.set(ip, timestamps);
 
   // Set rate limit headers

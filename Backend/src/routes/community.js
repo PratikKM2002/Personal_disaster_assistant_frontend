@@ -85,6 +85,7 @@ async function communityRoutes(req, res, requireAuth) {
                     JOIN user_account u ON r.user_id = u.id
                     WHERE status = 'active'
                     ORDER BY created_at DESC
+                    LIMIT 200
                 `);
             }
             send(res, 200, r.rows);

@@ -48,6 +48,8 @@ async function chatRoutes(req, res, requireAuth) {
             }
 
             try {
+                const controller = new AbortController();
+                const aiTimeout = setTimeout(() => controller.abort(), 12000); // 12s timeout for AI
                 const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                     method: "POST",
                     headers: {
@@ -68,8 +70,10 @@ async function chatRoutes(req, res, requireAuth) {
                             },
                             { "role": "user", "content": message }
                         ]
-                    })
+                    }),
+                    signal: controller.signal
                 });
+                clearTimeout(aiTimeout);
 
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -91,6 +95,10 @@ async function chatRoutes(req, res, requireAuth) {
                 send(res, 200, { response: aiResponse });
                 return true;
             } catch (e) {
+                if (e.name === 'AbortError') {
+                    console.error("[Chat] AI request timed out");
+                    return send(res, 504, { error: 'AI response timed out. Please try a shorter question.' });
+                }
                 console.error("[Chat] Request Failed:", e);
                 return send(res, 500, { error: 'Internal chat error' });
             }

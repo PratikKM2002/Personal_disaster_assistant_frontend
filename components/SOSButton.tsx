@@ -52,7 +52,6 @@ export default function SOSButton() {
                 setCountdown(prev => {
                     if (prev <= 1) {
                         clearInterval(countdownRef.current!);
-                        triggerSOS();
                         return 0;
                     }
                     return prev - 1;
@@ -62,7 +61,14 @@ export default function SOSButton() {
         return () => {
             if (countdownRef.current) clearInterval(countdownRef.current);
         };
-    }, [showConfirm]);
+    }, [showConfirm, sending]);
+
+    // Trigger SOS when countdown reaches 0
+    useEffect(() => {
+        if (showConfirm && countdown === 0 && !sending) {
+            triggerSOS();
+        }
+    }, [countdown]);
 
     const handleLongPress = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);

@@ -27,7 +27,7 @@ function createServer() {
       res.setHeader('Access-Control-Allow-Origin', '*');
     }
     res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET, POST, PUT, DELETE');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Bypass-Tunnel-Reminder');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Bypass-Tunnel-Reminder, x-user-email, x-user-name');
 
     // Handle Preflight
     if (req.method === 'OPTIONS') {
@@ -39,7 +39,16 @@ function createServer() {
     // Rate limiting — 100 requests per minute per IP
     if (rateLimit(req, res)) return;
 
-    await router(req, res);
+    try {
+      await router(req, res);
+    } catch (err) {
+      console.error('[Server] Unhandled router error:', err);
+      // Only send error response if headers haven't been sent yet
+      if (!res.writableEnded) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Internal Server Error' }));
+      }
+    }
   });
 }
 

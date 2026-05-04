@@ -49,10 +49,22 @@ function getSeverity(title) {
     return 0.3;
 }
 
+const INGEST_TIMEOUT_MS = 15000; // 15 seconds
+
 async function ingestFeed(url, source) {
     try {
         console.log(`[Tsunami Ingest] Fetching ${source}...`);
-        const res = await fetch(url, { headers: { 'user-agent': 'pda-backend/1.0' } });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), INGEST_TIMEOUT_MS);
+        let res;
+        try {
+            res = await fetch(url, { headers: { 'user-agent': 'pda-backend/1.0' }, signal: controller.signal });
+        } catch (err) {
+            clearTimeout(timeout);
+            if (err.name === 'AbortError') throw new Error(`${source} fetch timed out`);
+            throw err;
+        }
+        clearTimeout(timeout);
         if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
         const xml = await res.text();
         const entries = parseAtom(xml);
@@ -66,7 +78,7 @@ async function ingestFeed(url, source) {
             const severity = getSeverity(entry.title);
             const sourceEventId = entry.id;
 
-            await query(`
+            const r = await query(`
                 INSERT INTO hazard (type, severity, occurred_at, lat, lon, source, source_event_id, attributes)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 ON CONFLICT (source, source_event_id) DO UPDATE
@@ -75,6 +87,7 @@ async function ingestFeed(url, source) {
                     lat = EXCLUDED.lat,
                     lon = EXCLUDED.lon,
                     attributes = EXCLUDED.attributes
+                RETURNING id
             `, [
                 'tsunami',
                 severity,
@@ -89,6 +102,21 @@ async function ingestFeed(url, source) {
                     url: entry.id // Usually a URL in Atom
                 })
             ]);
+
+            const hazardId = r.rows[0].id;
+            const warningLevel = entry.title.toLowerCase().includes('warning') ? 'warning'
+                : entry.title.toLowerCase().includes('advisory') ? 'advisory'
+                : entry.title.toLowerCase().includes('watch') ? 'watch'
+                : 'information';
+
+            await query(`
+                INSERT INTO tsunami_event(hazard_id, warning_level, summary, source_url)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (hazard_id) DO UPDATE SET
+                  warning_level = EXCLUDED.warning_level,
+                  summary = EXCLUDED.summary,
+                  source_url = EXCLUDED.source_url
+            `, [hazardId, warningLevel, entry.summary || null, entry.id || null]);
         }
     } catch (err) {
         console.error(`[Tsunami Ingest] Error in ${source}:`, err.message);

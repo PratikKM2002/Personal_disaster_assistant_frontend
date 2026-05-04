@@ -31,6 +31,8 @@ async function shelterRoutes(req, res, requireAuth) {
                 )
               ) AS dist_km
             FROM shelter s
+            WHERE s.lat BETWEEN $1 - ($3 / 111.0) AND $1 + ($3 / 111.0)
+              AND s.lon BETWEEN $2 - ($3 / (111.0 * COS(RADIANS($1)))) AND $2 + ($3 / (111.0 * COS(RADIANS($1))))
           )
           SELECT * FROM calc
           WHERE dist_km <= $3
