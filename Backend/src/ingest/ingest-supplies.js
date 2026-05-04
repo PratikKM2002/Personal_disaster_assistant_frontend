@@ -68,31 +68,18 @@ async function upsertSupply(client, node) {
 
     const phone = node.tags.phone || node.tags['contact:phone'] || null;
 
-    // Check existence by Name + Location (Approx)
-    const existing = await client.query(
-        `SELECT id FROM shelter
-WHERE(name = $1 OR(lat BETWEEN $2 - 0.0001 AND $2 + 0.0001 AND lon BETWEEN $3 - 0.0001 AND $3 + 0.0001))
-     AND type = 'supply'`,
-        [name, lat, lon]
+    // Use ON CONFLICT to handle duplicates cleanly
+    await client.query(
+        `INSERT INTO shelter (name, address, lat, lon, capacity, type, status, phone, category)
+         VALUES ($1, $2, $3, $4, 0, 'supply', 'active', $5, 'supply')
+         ON CONFLICT (name, lat, lon) DO UPDATE SET
+           address = EXCLUDED.address,
+           phone = EXCLUDED.phone,
+           category = 'supply',
+           status = 'active',
+           updated_at = NOW()`,
+        [name, address, lat, lon, phone]
     );
-
-    if (existing.rows.length > 0) {
-        const id = existing.rows[0].id;
-        await client.query(
-            `UPDATE shelter SET
-name = $1, address = $2, lat = $3, lon = $4,
-    type = 'supply', status = 'active', phone = $5, category = 'supply', updated_at = NOW()
-       WHERE id = $6`,
-            [name, address, lat, lon, phone, id]
-        );
-    } else {
-        await client.query(
-            `INSERT INTO shelter(
-        name, address, lat, lon, capacity, type, status, phone, category
-    ) VALUES($1, $2, $3, $4, 0, 'supply', 'active', $5, 'supply')`,
-            [name, address, lat, lon, phone]
-        );
-    }
 }
 
 async function main() {
