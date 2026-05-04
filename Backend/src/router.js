@@ -1,5 +1,5 @@
 const { send } = require('./utils/send');
-const { getUserFromAuthHeader } = require('./middleware/jwt');
+const { getUserFromAuthHeader } = require('./middleware/clerk-auth');
 
 const { authRoutes } = require('./routes/auth');
 const { chatRoutes } = require('./routes/chat');
@@ -13,14 +13,25 @@ const { sosRoutes } = require('./routes/sos');
 
 async function router(req, res) {
   try {
-    const requireAuth = () => {
-      const u = getUserFromAuthHeader(req);
-      if (!u) {
+    // Cache the auth result so we don't decode + DB-lookup multiple times per request
+    let cachedAuth = undefined;
+    const requireAuth = async () => {
+      if (cachedAuth !== undefined) {
+        if (!cachedAuth) {
+          const err = new Error('Unauthorized');
+          err.status = 401;
+          throw err;
+        }
+        return cachedAuth;
+      }
+      cachedAuth = await getUserFromAuthHeader(req);
+      if (!cachedAuth) {
+        cachedAuth = null; // Mark as resolved but unauthorized
         const err = new Error('Unauthorized');
         err.status = 401;
         throw err;
       }
-      return u;
+      return cachedAuth;
     };
 
     console.log(`[REQUEST] ${req.method} ${req.url}`);
@@ -46,7 +57,8 @@ async function router(req, res) {
   } catch (e) {
     console.error('[Router Error]', e);
     const status = e.status || 500;
-    return send(res, status, { error: e.message || 'Internal Server Error' });
+    const isExpected = e.status && e.status < 500;
+    return send(res, status, { error: isExpected ? e.message : 'Internal Server Error' });
   }
 }
 

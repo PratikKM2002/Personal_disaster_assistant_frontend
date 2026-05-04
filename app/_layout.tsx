@@ -125,9 +125,9 @@ export default function RootLayout() {
                   <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                   <Stack.Screen name="auth" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
                   <Stack.Screen name="family" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-                  {/* <Stack.Screen name="kit" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} /> */}
-                  {/* <Stack.Screen name="documents" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} /> */}
-                  {/* <Stack.Screen name="neighbors" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} /> */}
+                  <Stack.Screen name="kit" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                  <Stack.Screen name="documents" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                  <Stack.Screen name="neighbors" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
                   <Stack.Screen name="navigation" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
                 </Stack>
 

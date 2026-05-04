@@ -1,5 +1,7 @@
 const { query } = require('../config/db');
 
+const INGEST_TIMEOUT_MS = 15000; // 15 seconds
+
 function magToSeverity(mag) {
   if (mag == null || Number.isNaN(Number(mag))) return null;
   const s = (Number(mag) - 4) / 4;         // M4->0, M8->1
@@ -8,9 +10,18 @@ function magToSeverity(mag) {
 
 async function fetchUSGS() {
   const url = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson';
-  const res = await fetch(url, { headers: { 'user-agent': 'pda-backend/1.0' } });
-  if (!res.ok) throw new Error(`USGS fetch failed: ${res.status}`);
-  return res.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), INGEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { headers: { 'user-agent': 'pda-backend/1.0' }, signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) throw new Error(`USGS fetch failed: ${res.status}`);
+    return res.json();
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') throw new Error('USGS fetch timed out');
+    throw err;
+  }
 }
 
 async function upsertEarthquake(feature) {

@@ -1,6 +1,8 @@
 const fetch = require('node-fetch');
 const { query } = require('../config/db');
 
+const FLOOD_TIMEOUT_MS = 8000; // 8 seconds
+
 // --- Flood Data Helper ---
 // Uses Open-Meteo Flood API (Copernicus GloFAS data)
 async function fetchFloodRisk(lat, lon) {
@@ -11,7 +13,17 @@ async function fetchFloodRisk(lat, lon) {
     const url = `https://flood-api.open-meteo.com/v1/flood?latitude=${rLat}&longitude=${rLon}&daily=river_discharge,river_discharge_mean,river_discharge_median,river_discharge_max&forecast_days=3`;
 
     try {
-        const res = await fetch(url);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), FLOOD_TIMEOUT_MS);
+        let res;
+        try {
+            res = await fetch(url, { signal: controller.signal });
+        } catch (err) {
+            clearTimeout(timeout);
+            if (err.name === 'AbortError') throw new Error('Flood API request timed out');
+            throw err;
+        }
+        clearTimeout(timeout);
         if (!res.ok) {
             const text = await res.text();
             throw new Error(`Flood API ${res.status}: ${text}`);
@@ -62,13 +74,15 @@ async function fetchFloodRisk(lat, lon) {
 
         if (today && today.risk_level === 'high') {
             // Upsert — update severity/attributes if conditions change
-            await query(`
+            const dischargeRatio = today.river_discharge / (today.river_discharge_median > 0.1 ? today.river_discharge_median : 0.1);
+            const hazardRes = await query(`
                 INSERT INTO hazard (type, severity, occurred_at, lat, lon, source, source_event_id, attributes)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 ON CONFLICT (source, source_event_id) DO UPDATE
                 SET severity = EXCLUDED.severity,
                     attributes = EXCLUDED.attributes,
                     occurred_at = EXCLUDED.occurred_at
+                RETURNING id
             `, [
                 'flood',
                 today.risk_score,
@@ -80,13 +94,24 @@ async function fetchFloodRisk(lat, lon) {
                 JSON.stringify({
                     discharge: today.river_discharge,
                     median: today.river_discharge_median,
-                    ratio: (today.river_discharge / today.river_discharge_median).toFixed(2),
+                    ratio: dischargeRatio.toFixed(2),
                     title: `Flood Risk: ${today.risk_level.toUpperCase()}`,
-                    description: today.river_discharge > today.river_discharge_median * 5
+                    description: dischargeRatio > 5
                         ? "Critical river discharge levels. Excessive rainfall may cause severe urban and river flooding."
                         : "Elevated river discharge levels. Be cautious of ponding in low-lying areas and poor drainage."
                 })
             ]);
+
+            const hazardId = hazardRes.rows[0].id;
+            await query(`
+                INSERT INTO flood_event(hazard_id, river_discharge, discharge_median, discharge_ratio, risk_level)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (hazard_id) DO UPDATE SET
+                  river_discharge = EXCLUDED.river_discharge,
+                  discharge_median = EXCLUDED.discharge_median,
+                  discharge_ratio = EXCLUDED.discharge_ratio,
+                  risk_level = EXCLUDED.risk_level
+            `, [hazardId, today.river_discharge, today.river_discharge_median, dischargeRatio, today.risk_level]);
         } else if (today) {
             // Risk has dropped — remove any existing hazard for this location/date
             await query(`

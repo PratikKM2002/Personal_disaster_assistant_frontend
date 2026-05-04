@@ -14,19 +14,25 @@ const QUERY = `
 out center;
 `;
 
+const INGEST_TIMEOUT_MS = 20000; // 20 seconds (Overpass can be slow)
+
 async function fetchFireStations() {
     console.log('Fetching fire stations from Overpass API (Bay Area)...');
     const params = new URLSearchParams();
     params.append('data', QUERY);
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), INGEST_TIMEOUT_MS);
     try {
         const res = await fetch(OVERPASS_URL, {
             method: 'POST',
             body: params,
             headers: {
                 'User-Agent': 'PersonalDisasterAssistant/1.0 (contact@example.com)'
-            }
+            },
+            signal: controller.signal
         });
+        clearTimeout(timeout);
 
         if (!res.ok) {
             const text = await res.text();
@@ -41,6 +47,8 @@ async function fetchFireStations() {
             throw new Error(`JSON Parse Error: ${e.message}\nResponse start: ${text.substring(0, 100)}`);
         }
     } catch (err) {
+        clearTimeout(timeout);
+        if (err.name === 'AbortError') throw new Error('Overpass fire station fetch timed out');
         throw err;
     }
 }
@@ -76,15 +84,15 @@ async function upsertFireStation(client, node) {
         await client.query(
             `UPDATE shelter SET 
        address = $1, lat = $2, lon = $3, 
-       capacity = 0, type = 'fire_station', status = 'active', phone = $4, updated_at = NOW()
+       capacity = 0, type = 'fire_station', status = 'active', phone = $4, category = 'fire_service', updated_at = NOW()
        WHERE id = $5`,
             [address, lat, lon, phone, id]
         );
     } else {
         await client.query(
             `INSERT INTO shelter (
-        name, address, lat, lon, capacity, type, status, phone
-       ) VALUES ($1, $2, $3, $4, 0, 'fire_station', 'active', $5)`,
+        name, address, lat, lon, capacity, type, status, phone, category
+       ) VALUES ($1, $2, $3, $4, 0, 'fire_station', 'active', $5, 'fire_service')`,
             [name, address, lat, lon, phone]
         );
     }

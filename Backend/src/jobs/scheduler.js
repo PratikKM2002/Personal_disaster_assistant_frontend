@@ -7,65 +7,38 @@ const { main: ingestFlood } = require('../ingest/ingest-flood');
 const { main: ingestTsunamis } = require('../ingest/ingest-tsunamis');
 const { main: ingestHospitals } = require('../ingest/ingest-hospitals');
 const { main: ingestFireStations } = require('../ingest/ingest-firestations');
+const { main: ingestShelters } = require('../ingest/ingest-shelters');
+const { main: ingestSupplies } = require('../ingest/ingest-supplies');
 const { runAlerts } = require('./alerts-run');
 
-const INGEST_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
-const WILDFIRE_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
-const TSUNAMI_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
-const RESOURCES_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours (static data mostly)
-const ALERTS_INTERVAL_MS = 1 * 60 * 1000; // 1 minute
+const PUSH_TIMEOUT_MS = 8000; // 8 seconds for Expo push service
+
+// Notification deduplication: prevent sending the same alert repeatedly
+// Key: "userId:hazardId" -> timestamp of last notification
+const notifiedCache = new Map();
+const NOTIFY_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+
+function shouldNotify(userId, hazardId) {
+    const key = `${userId}:${hazardId}`;
+    const lastNotified = notifiedCache.get(key);
+    if (lastNotified && Date.now() - lastNotified < NOTIFY_COOLDOWN_MS) {
+        return false;
+    }
+    notifiedCache.set(key, Date.now());
+    return true;
+}
+
+// Periodically clean up expired dedup entries
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, timestamp] of notifiedCache.entries()) {
+        if (now - timestamp > NOTIFY_COOLDOWN_MS) {
+            notifiedCache.delete(key);
+        }
+    }
+}, 10 * 60 * 1000); // Clean every 10 minutes
 
 function startScheduler() {
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     console.log('[Scheduler] Starting background tasks...');
 
     // Run immediately
@@ -77,38 +50,33 @@ function startScheduler() {
     // Resources run once on startup, then daily
     safeRun(ingestHospitals, 'Hospital Ingest');
     safeRun(ingestFireStations, 'Fire Station Ingest');
+    safeRun(ingestShelters, 'Shelter Ingest');
+    safeRun(ingestSupplies, 'Supply Ingest');
 
-    // Give ingestors a moment to finish before checking alerts? 
-    // Actually alerts-run runs independently, so it's fine.
+    // Give ingestors a moment to finish before checking alerts
     setTimeout(() => safeRun(runAlerts, 'Alert Generation'), 2000);
 
-    // Schedule
-    // USGS
+    // Schedule: USGS every 5 minutes
     cron.schedule('*/5 * * * *', async () => {
         await safeRun(ingestUSGS, 'USGS Ingest');
     });
 
-    // Wildfires
+    // Wildfires, Floods, Tsunamis every 15 minutes
     cron.schedule('*/15 * * * *', async () => {
         await safeRun(ingestWildfires, 'Wildfire Ingest');
         await safeRun(ingestFlood, 'Flood Ingest');
         await safeRun(ingestTsunamis, 'Tsunami Ingest');
     });
 
-    // Tsunamis (Future)
-    /*
-    cron.schedule('0 *\/1 * * *', async () => {
-        await safeRun(ingestTsunamis, 'Tsunami Ingest');
-    });
-    */
-
     // Resources (Daily at midnight)
     cron.schedule('0 0 * * *', async () => {
         await safeRun(ingestHospitals, 'Hospital Ingest');
         await safeRun(ingestFireStations, 'Fire Station Ingest');
+        await safeRun(ingestShelters, 'Shelter Ingest');
+        await safeRun(ingestSupplies, 'Supply Ingest');
     });
 
-    // Alerts (Every minute)
+    // Alerts + Push Notifications (Every minute)
     cron.schedule('* * * * *', async () => {
         await safeRun(runAlerts, 'Alert Generation');
         await safeRun(checkAndNotifyHazards, 'Push Notifications');
@@ -127,40 +95,59 @@ async function safeRun(fn, name) {
 }
 
 async function checkAndNotifyHazards() {
-    // 1. Find hazards created in the last minute (or scheduled interval)
-    // For robust production, you'd track the last check time in DB. 
-    // Here we'll just look back 2 minutes to be safe.
     try {
+        // B3: Use 5-minute lookback instead of 2 minutes to avoid missing hazards
+        // if a scheduler cycle is delayed. Dedup cache prevents duplicate notifications.
         const res = await pool.query(`
             SELECT id, type, severity, lat, lon, attributes, occurred_at 
             FROM hazard 
-            WHERE occurred_at > NOW() - INTERVAL '2 minutes'
+            WHERE occurred_at > NOW() - INTERVAL '5 minutes'
         `);
 
         if (res.rows.length === 0) return;
 
         console.log(`[Notify] Found ${res.rows.length} new hazards. Checking for users...`);
 
-        // 2. Find users near these hazards (e.g., 50km) who have a push token
         for (const hazard of res.rows) {
+            // Use bounding-box pre-filter (~0.45 degrees ≈ 50km) before expensive Haversine
             const userRes = await pool.query(`
                 SELECT id, push_token, 
                        (6371 * acos(cos(radians($1)) * cos(radians(last_lat)) * cos(radians(last_lon) - radians($2)) + sin(radians($1)) * sin(radians(last_lat)))) AS dist_km
                 FROM user_account
                 WHERE push_token IS NOT NULL
                 AND last_lat IS NOT NULL AND last_lon IS NOT NULL
+                AND last_lat BETWEEN $1 - 0.45 AND $1 + 0.45
+                AND last_lon BETWEEN $2 - 0.45 AND $2 + 0.45
                 AND (6371 * acos(cos(radians($1)) * cos(radians(last_lat)) * cos(radians(last_lon) - radians($2)) + sin(radians($1)) * sin(radians(last_lat)))) < 50
             `, [hazard.lat, hazard.lon]);
 
             if (userRes.rows.length === 0) continue;
 
-            const tokens = userRes.rows.map(u => u.push_token);
-            const message = `⚠️ New ${hazard.severity} ${hazard.type} reported ${Math.round(userRes.rows[0].dist_km)}km away!`;
+            // Filter out already-notified users
+            const eligibleUsers = userRes.rows.filter(u => shouldNotify(u.id, hazard.id));
+            if (eligibleUsers.length === 0) continue;
+
+            const tokens = eligibleUsers.map(u => u.push_token);
+            const message = `⚠️ New ${hazard.severity >= 0.7 ? 'CRITICAL' : 'HIGH'} ${hazard.type} reported ${Math.round(eligibleUsers[0].dist_km)}km away!`;
 
             console.log(`[Notify] Sending alert to ${tokens.length} users near hazard ${hazard.id}`);
+            const pushSuccess = await sendExpoPush(tokens, message, { hazardId: hazard.id });
 
-            // 3. Send to Expo
-            await sendExpoPush(tokens, message, { hazardId: hazard.id });
+            // B2/A2: Update delivered_at on matching alert rows after successful push
+            if (pushSuccess) {
+                const userIds = eligibleUsers.map(u => u.id);
+                try {
+                    await pool.query(`
+                        UPDATE alert
+                        SET delivered_at = NOW()
+                        WHERE hazard_id = $1
+                          AND user_id = ANY($2::bigint[])
+                          AND delivered_at IS NULL
+                    `, [hazard.id, userIds]);
+                } catch (e) {
+                    console.error('[Notify] Failed to update delivered_at:', e.message);
+                }
+            }
         }
     } catch (err) {
         console.error('[Notify] Error:', err);
@@ -176,9 +163,11 @@ async function sendExpoPush(tokens, body, data) {
         data: data,
     }));
 
-    // Chunking is recommended for large batches, but simple here
+    // B1: Add timeout to prevent scheduler freeze if Expo push service hangs
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), PUSH_TIMEOUT_MS);
     try {
-        await fetch('https://exp.host/--/api/v2/push/send', {
+        const res = await fetch('https://exp.host/--/api/v2/push/send', {
             method: 'POST',
             headers: {
                 'Accept': 'application/json',
@@ -186,28 +175,45 @@ async function sendExpoPush(tokens, body, data) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(messages),
+            signal: controller.signal,
         });
+        clearTimeout(timeout);
+        return res.ok; // Return success status for delivered_at tracking
     } catch (err) {
-        console.error('Expo Push Error:', err);
+        clearTimeout(timeout);
+        if (err.name === 'AbortError') {
+            console.error('[Push] Expo push service timed out after', PUSH_TIMEOUT_MS, 'ms');
+        } else {
+            console.error('[Push] Expo Push Error:', err);
+        }
+        return false;
     }
 }
 
 async function runGeofencingAlerts() {
     try {
-        // 1. Find users currently in a high-risk zone (within 5km of a 'critical' or 2km of 'high' hazard)
-        // We look for hazards reported in the last 6 hours to be relevant.
+        // Use a CTE with bounding-box pre-filter to avoid triple Haversine computation
         const res = await pool.query(`
-            SELECT u.id as user_id, u.name as user_name, u.family_id, h.type as hazard_type, h.severity,
-                   (6371 * acos(cos(radians(h.lat)) * cos(radians(u.last_lat)) * cos(radians(u.last_lon) - radians(h.lon)) + sin(radians(h.lat)) * sin(radians(u.last_lat)))) AS dist_km
-            FROM user_account u
-            JOIN hazard h ON (6371 * acos(cos(radians(h.lat)) * cos(radians(u.last_lat)) * cos(radians(u.last_lon) - radians(h.lon)) + sin(radians(h.lat)) * sin(radians(u.last_lat)))) < 5
-            WHERE u.last_lat IS NOT NULL AND u.last_lon IS NOT NULL
-              AND u.family_id IS NOT NULL
-              AND h.occurred_at > NOW() - INTERVAL '6 hours'
-              AND (
-                (h.severity >= 0.7 AND (6371 * acos(cos(radians(h.lat)) * cos(radians(u.last_lat)) * cos(radians(u.last_lon) - radians(h.lon)) + sin(radians(h.lat)) * sin(radians(u.last_lat)))) < 5)
-                OR (h.severity >= 0.4 AND (6371 * acos(cos(radians(h.lat)) * cos(radians(u.last_lat)) * cos(radians(u.last_lon) - radians(h.lon)) + sin(radians(h.lat)) * sin(radians(u.last_lat)))) < 2)
-              )
+            WITH nearby AS (
+                SELECT u.id as user_id, u.name as user_name, u.family_id, 
+                       h.id as hazard_id, h.type as hazard_type, h.severity,
+                       (6371 * acos(
+                           cos(radians(h.lat)) * cos(radians(u.last_lat)) * 
+                           cos(radians(u.last_lon) - radians(h.lon)) + 
+                           sin(radians(h.lat)) * sin(radians(u.last_lat))
+                       )) AS dist_km
+                FROM user_account u
+                JOIN hazard h ON (
+                    u.last_lat BETWEEN h.lat - 0.045 AND h.lat + 0.045
+                    AND u.last_lon BETWEEN h.lon - 0.045 AND h.lon + 0.045
+                )
+                WHERE u.last_lat IS NOT NULL AND u.last_lon IS NOT NULL
+                  AND u.family_id IS NOT NULL
+                  AND h.occurred_at > NOW() - INTERVAL '6 hours'
+            )
+            SELECT * FROM nearby
+            WHERE (severity >= 0.7 AND dist_km < 5)
+               OR (severity >= 0.4 AND dist_km < 2)
         `);
 
         if (res.rows.length === 0) return;
@@ -215,7 +221,9 @@ async function runGeofencingAlerts() {
         console.log(`[Geofence] Found ${res.rows.length} users in danger zones. Notifying families...`);
 
         for (const row of res.rows) {
-            // Find family members (excluding the user themselves)
+            // Dedup: don't spam the same family about the same user+hazard
+            if (!shouldNotify(row.user_id, row.hazard_id)) continue;
+
             const familyRes = await pool.query(`
                 SELECT push_token 
                 FROM user_account 

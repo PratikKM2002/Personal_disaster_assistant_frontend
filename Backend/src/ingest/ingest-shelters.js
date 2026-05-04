@@ -16,19 +16,25 @@ const QUERY = `
 out center;
 `;
 
+const INGEST_TIMEOUT_MS = 20000; // 20 seconds
+
 async function fetchShelters() {
   console.log('Fetching shelters from Overpass API (Bay Area)...');
   const params = new URLSearchParams();
   params.append('data', QUERY);
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), INGEST_TIMEOUT_MS);
   try {
     const res = await fetch(OVERPASS_URL, {
       method: 'POST',
       body: params,
       headers: {
         'User-Agent': 'PersonalDisasterAssistant/1.0 (contact@example.com)'
-      }
+      },
+      signal: controller.signal
     });
+    clearTimeout(timeout);
 
     if (!res.ok) {
       const text = await res.text();
@@ -38,6 +44,8 @@ async function fetchShelters() {
     const data = await res.json();
     return data.elements || [];
   } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') throw new Error('Overpass shelter fetch timed out');
     throw err;
   }
 }
@@ -59,31 +67,19 @@ async function upsertShelter(client, node) {
   const phone = node.tags.phone || node.tags['contact:phone'] || null;
   const capacity = parseInt(node.tags.capacity, 10) || 0;
 
-  // Check existence by Name + Location (Approx)
-  const existing = await client.query(
-    `SELECT id FROM shelter 
-     WHERE (name = $1 OR (lat BETWEEN $2 - 0.0001 AND $2 + 0.0001 AND lon BETWEEN $3 - 0.0001 AND $3 + 0.0001))
-     AND type = 'shelter'`,
-    [name, lat, lon]
+  // Use ON CONFLICT to handle duplicates cleanly
+  await client.query(
+    `INSERT INTO shelter (name, address, lat, lon, capacity, type, status, phone, category)
+     VALUES ($1, $2, $3, $4, $5, 'shelter', 'active', $6, 'emergency_shelter')
+     ON CONFLICT (name, lat, lon) DO UPDATE SET
+       address = EXCLUDED.address,
+       capacity = EXCLUDED.capacity,
+       phone = EXCLUDED.phone,
+       category = 'emergency_shelter',
+       status = 'active',
+       updated_at = NOW()`,
+    [name, address, lat, lon, capacity, phone]
   );
-
-  if (existing.rows.length > 0) {
-    const id = existing.rows[0].id;
-    await client.query(
-      `UPDATE shelter SET 
-       name = $1, address = $2, lat = $3, lon = $4, 
-       capacity = $5, type = 'shelter', status = 'active', phone = $6, updated_at = NOW()
-       WHERE id = $7`,
-      [name, address, lat, lon, capacity, phone, id]
-    );
-  } else {
-    await client.query(
-      `INSERT INTO shelter (
-        name, address, lat, lon, capacity, type, status, phone
-       ) VALUES ($1, $2, $3, $4, $5, 'shelter', 'active', $6)`,
-      [name, address, lat, lon, capacity, phone]
-    );
-  }
 }
 
 async function main() {

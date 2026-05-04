@@ -1,29 +1,60 @@
 
 import { showToast } from '@/components/Toast';
 import NetInfo from '@react-native-community/netinfo';
+import Constants from 'expo-constants';
 
 // --- Configuration ---
-// Reads from EXPO_PUBLIC_API_URL env var; falls back to LAN IP for dev
-const API_BASE_URL =
-    process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.36:8000';
+// 1. Explicit env var (e.g. production Render URL) always wins.
+// 2. In dev, auto-detect the machine IP from Expo's dev server host
+//    so the app works on ANY network without manual edits.
+// 3. Final fallback to localhost (web only).
+function getApiBaseUrl(): string {
+    if (process.env.EXPO_PUBLIC_API_URL) {
+        return process.env.EXPO_PUBLIC_API_URL;
+    }
 
-let authToken: string | null = null;
-export function setAuthToken(token: string) {
-    authToken = token;
+    if (__DEV__) {
+        const debuggerHost =
+            Constants.expoConfig?.hostUri ??
+            (Constants as any).manifest?.debuggerHost ??
+            (Constants as any).manifest2?.extra?.expoGo?.debuggerHost;
+
+        if (debuggerHost) {
+            const host = debuggerHost.split(':')[0]; // e.g. "172.20.10.4"
+            return `http://${host}:8000`;
+        }
+    }
+
+    return 'http://localhost:8000';
+}
+
+const API_BASE_URL = getApiBaseUrl();
+
+let tokenProvider: (() => Promise<string | null>) | null = null;
+let currentUserInfo: { email: string; name: string } | null = null;
+
+export function setTokenProvider(provider: () => Promise<string | null>, userInfo: { email: string; name: string } | null = null) {
+    tokenProvider = provider;
+    currentUserInfo = userInfo;
 }
 
 // --- Retry / Timeout config ---
 const MAX_RETRIES = 2;
 const BASE_DELAY_MS = 1000;   // 1s, then 2s
 const REQUEST_TIMEOUT_MS = 15000;
+const CHAT_TIMEOUT_MS = 30000; // Chat AI needs more time
 
 // --- HTTP Helpers ---
 
 async function request<T>(
     path: string,
     options: RequestInit = {},
-    auth = false
+    auth = false,
+    silent = false
 ): Promise<T> {
+    // Use longer timeout for chat endpoint
+    const timeoutMs = path.startsWith('/chat') ? CHAT_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+
     // Check network connectivity first
     const netState = await NetInfo.fetch();
     if (!netState.isConnected) {
@@ -33,10 +64,20 @@ async function request<T>(
 
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        'Authorization': authToken ? `Bearer ${authToken}` : 'Bearer dev-token',
         'Bypass-Tunnel-Reminder': 'true',
         ...(options.headers as Record<string, string>),
     };
+
+    if (auth && tokenProvider) {
+        const token = await tokenProvider();
+        if (token && token !== 'null') {
+            headers['Authorization'] = `Bearer ${token}`;
+            if (currentUserInfo && currentUserInfo.email) {
+                headers['x-user-email'] = currentUserInfo.email;
+                headers['x-user-name'] = currentUserInfo.name;
+            }
+        }
+    }
 
     let lastError: Error | null = null;
 
@@ -44,7 +85,7 @@ async function request<T>(
         try {
             // Timeout via AbortController
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+            const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
             const res = await fetch(`${API_BASE_URL}${path}`, {
                 ...options,
@@ -89,7 +130,7 @@ async function request<T>(
                 lastError = new ApiError(err.message || 'Network error', 0);
             }
 
-            // Retry on network/timeout errors (not on 4xx)
+            // Retry on network/timeout errors (not on 4xx client errors)
             if (attempt < MAX_RETRIES && !(lastError instanceof ApiError && (lastError as ApiError).status >= 400 && (lastError as ApiError).status < 500)) {
                 await delay(BASE_DELAY_MS * Math.pow(2, attempt));
                 continue;
@@ -97,9 +138,11 @@ async function request<T>(
         }
     }
 
-    // All retries exhausted — show toast
+    // All retries exhausted — show toast (unless silent mode)
     const errMsg = lastError?.message || 'Something went wrong';
-    showToast('error', 'Request Failed', errMsg);
+    if (!silent) {
+        showToast('error', 'Request Failed', errMsg);
+    }
     throw lastError || new ApiError('Unknown error', 0);
 }
 
@@ -134,22 +177,23 @@ export interface UserProfile {
     public_tag: string | null;
     safety_status: string | null;
     contacts: EmergencyContact[];
+    role?: string;
 }
 
 export async function getProfile(): Promise<UserProfile> {
-    return request<UserProfile>('/user/me');
+    return request<UserProfile>('/user/me', {}, true);
 }
 
 export async function updateProfile(data: { phone?: string; blood_type?: string }): Promise<{ success: boolean }> {
-    return request('/user/profile', { method: 'PUT', body: JSON.stringify(data) });
+    return request('/user/profile', { method: 'PUT', body: JSON.stringify(data) }, true);
 }
 
 export async function addEmergencyContact(contact: { name: string; phone: string; relationship?: string; is_primary?: boolean }): Promise<EmergencyContact> {
-    return request('/user/contacts', { method: 'POST', body: JSON.stringify(contact) });
+    return request('/user/contacts', { method: 'POST', body: JSON.stringify(contact) }, true);
 }
 
 export async function deleteEmergencyContact(id: number): Promise<{ success: boolean }> {
-    return request(`/user/contacts/${id}`, { method: 'DELETE' });
+    return request(`/user/contacts/${id}`, { method: 'DELETE' }, true);
 }
 
 // --- Hazards ---
@@ -255,7 +299,7 @@ export async function getOverview(
 ): Promise<OverviewResponse> {
     let url = `/overview?lat=${lat}&lon=${lon}&radius_km=${radiusKm}&limit=100`;
     if (city) url += `&city=${encodeURIComponent(city)}`;
-    return request<OverviewResponse>(url);
+    return request<OverviewResponse>(url, {}, true);
 }
 
 // --- Alerts ---
@@ -327,8 +371,8 @@ export interface FamilyMember {
     safety_message?: string;
 }
 
-export async function getFamilyMembers(): Promise<{ family_id: string | null; members: FamilyMember[] }> {
-    return request<{ family_id: string | null; members: FamilyMember[] }>('/family', {}, true);
+export async function getFamilyMembers(): Promise<{ family_id: string | null; members: FamilyMember[]; my_role: string }> {
+    return request<{ family_id: string | null; members: FamilyMember[]; my_role: string }>('/family', {}, true);
 }
 
 export async function joinFamily(code: string): Promise<{ success: boolean; family_id: string; action: 'created' | 'joined'; member_count: number }> {
@@ -373,11 +417,12 @@ export async function updateStatus(
     }, true);
 }
 
-export async function syncGoogleUser(email: string, name: string): Promise<{ user: any; token: string }> {
+export async function syncGoogleUser(email: string, name: string, idToken: string): Promise<{ user: any; token: string }> {
+    // Use silent mode — this is a background sync, don't show error toasts
     return request<{ user: any; token: string }>('/auth/google-sync', {
         method: 'POST',
-        body: JSON.stringify({ email, name }),
-    });
+        body: JSON.stringify({ email, name, idToken }),
+    }, false, true);
 }
 
 export async function updatePushToken(token: string): Promise<{ success: boolean }> {
@@ -452,15 +497,12 @@ export async function createCommunityResource(
     }, true);
 }
 
-export async function getUserProfile(): Promise<any> {
-    return request<any>('/user/me', {}, true);
-}
 
 export async function sendChatMessage(message: string, lat?: number, lon?: number): Promise<{ response: string }> {
     return request<{ response: string }>('/chat', {
         method: 'POST',
         body: JSON.stringify({ message, lat, lon }),
-    }, false);
+    }, true);
 }
 
 // --- Navigation ---
@@ -495,7 +537,7 @@ export async function getRoute(
         geometry: JSON.stringify(route.geometry),
         distance: route.distance,
         duration: route.duration,
-        steps: route.legs[0].steps.map((s: any) => ({
+        steps: (route.legs?.[0]?.steps || []).map((s: any) => ({
             distance: s.distance,
             duration: s.duration,
             instruction: s.maneuver?.instruction || 'Continue',

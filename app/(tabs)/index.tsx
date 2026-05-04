@@ -155,7 +155,8 @@ export default function HomeScreen() {
 
       setLocationName(locName);
 
-      // Fetch overview and flood risk in parallel
+      // Fetch overview and flood risk in parallel — only if authenticated
+      if (!isAuthenticated) return;
       try {
         setFetchFailed(false);
         const [overviewData, floodData] = await Promise.all([
@@ -176,7 +177,7 @@ export default function HomeScreen() {
         setFetchFailed(true);
       }
     })();
-  }, []);
+  }, [isAuthenticated]);
 
   const [stats, setStats] = useState({
     neighbors_safe: 0,

@@ -8,7 +8,7 @@ async function alertRoutes(req, res, requireAuth) {
     {
         const m = match(req.method, req.url, { method: 'GET', path: '/alerts' });
         if (m) {
-            requireAuth();
+            await requireAuth();
             const lat = Number(m.search.get('lat'));
             const lon = Number(m.search.get('lon'));
             const radiusKm = Number(m.search.get('radius_km') || 500);

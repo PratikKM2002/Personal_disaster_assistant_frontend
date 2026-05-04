@@ -3,21 +3,29 @@ const { parseJson } = require('../utils/json');
 const { send } = require('../utils/send');
 const { match } = require('../utils/url');
 const { query } = require('../config/db');
+const { validateCoords } = require('../utils/validate');
 
 async function chatRoutes(req, res, requireAuth) {
     // -------- CHAT: SEND MESSAGE
     {
         const m = match(req.method, req.url, { method: 'POST', path: '/chat' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const body = await parseJson(req);
             const { message, lat, lon } = body || {};
 
             if (!message) return send(res, 400, { error: 'message required' });
 
+            // Limit message length to prevent abuse / prompt injection
+            const MAX_MSG_LEN = 2000;
+            if (typeof message !== 'string' || message.length > MAX_MSG_LEN) {
+                return send(res, 400, { error: `Message must be a string under ${MAX_MSG_LEN} characters` });
+            }
+
             // 1. Fetch Context (Hazards near user)
             let contextStr = "No major hazards reported nearby.";
-            if (lat && lon) {
+            const coords = validateCoords(lat, lon);
+            if (coords) {
                 const hazardsRes = await query(`
                     SELECT type, severity, attributes->>'title' as title
                     FROM hazard
@@ -40,6 +48,8 @@ async function chatRoutes(req, res, requireAuth) {
             }
 
             try {
+                const controller = new AbortController();
+                const aiTimeout = setTimeout(() => controller.abort(), 12000); // 12s timeout for AI
                 const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                     method: "POST",
                     headers: {
@@ -60,8 +70,10 @@ async function chatRoutes(req, res, requireAuth) {
                             },
                             { "role": "user", "content": message }
                         ]
-                    })
+                    }),
+                    signal: controller.signal
                 });
+                clearTimeout(aiTimeout);
 
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -83,6 +95,10 @@ async function chatRoutes(req, res, requireAuth) {
                 send(res, 200, { response: aiResponse });
                 return true;
             } catch (e) {
+                if (e.name === 'AbortError') {
+                    console.error("[Chat] AI request timed out");
+                    return send(res, 504, { error: 'AI response timed out. Please try a shorter question.' });
+                }
                 console.error("[Chat] Request Failed:", e);
                 return send(res, 500, { error: 'Internal chat error' });
             }

@@ -1,5 +1,7 @@
 const fetch = require('node-fetch');
 
+const GEOCODE_TIMEOUT_MS = 5000; // 5 seconds
+
 /**
  * Reverse geocodes lat/lon into a readable address using OSM Nominatim.
  */
@@ -13,12 +15,26 @@ async function reverseGeocode(lat, lon) {
     const url = `https://nominatim.openstreetmap.org/reverse?lat=${rLat}&lon=${rLon}&format=json&addressdetails=1`;
 
     try {
-        const res = await fetch(url, {
-            headers: {
-                'User-Agent': 'GuardianAI-PDA/1.0',
-                'Accept-Language': 'en'
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), GEOCODE_TIMEOUT_MS);
+        let res;
+        try {
+            res = await fetch(url, {
+                headers: {
+                    'User-Agent': 'GuardianAI-PDA/1.0',
+                    'Accept-Language': 'en'
+                },
+                signal: controller.signal
+            });
+        } catch (err) {
+            clearTimeout(timeout);
+            if (err.name === 'AbortError') {
+                console.error('[Geocoding] Reverse geocode timed out');
+                return null;
             }
-        });
+            throw err;
+        }
+        clearTimeout(timeout);
 
         if (!res.ok) return null;
 

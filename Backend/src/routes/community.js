@@ -2,13 +2,14 @@ const { parseJson } = require('../utils/json');
 const { send } = require('../utils/send');
 const { match } = require('../utils/url');
 const { query } = require('../config/db');
+const { validateCoords, validatePositiveInt } = require('../utils/validate');
 
 async function communityRoutes(req, res, requireAuth) {
     // -------- COMMUNITY: NEIGHBORS
     {
         const m = match(req.method, req.url, { method: 'GET', path: '/community/neighbors' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const r = await query(`
             SELECT u.id, u.name, u.email, u.phone, u.last_lat, u.last_lon, 
                    u.safety_status, u.public_tag, u.last_location_update, u.safety_message
@@ -25,7 +26,7 @@ async function communityRoutes(req, res, requireAuth) {
     {
         const m = match(req.method, req.url, { method: 'POST', path: '/community/neighbors/add' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const body = await parseJson(req);
             const { tag } = body || {};
             if (!tag) return send(res, 400, { error: 'tag required' });
@@ -46,7 +47,7 @@ async function communityRoutes(req, res, requireAuth) {
     {
         const m = match(req.method, req.url, { method: 'POST', path: '/community/neighbors/remove' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const body = await parseJson(req);
             const { neighborId } = body || {};
             if (!neighborId) return send(res, 400, { error: 'neighborId required' });
@@ -61,8 +62,10 @@ async function communityRoutes(req, res, requireAuth) {
     {
         const m = match(req.method, req.url, { method: 'GET', path: '/community/resources' });
         if (m) {
-            requireAuth();
-            const { lat, lon, radius_km = 50 } = m.query || {};
+            await requireAuth();
+            const lat = m.search.get('lat');
+            const lon = m.search.get('lon');
+            const radius_km = validatePositiveInt(m.search.get('radius_km'), { min: 1, max: 500, defaultVal: 50 });
             let r;
             if (lat && lon) {
                 // Earth radius approx 6371km. Radius search using spherical law of cosines
@@ -74,7 +77,7 @@ async function communityRoutes(req, res, requireAuth) {
                     WHERE status = 'active'
                     AND (6371 * acos(cos(radians($1)) * cos(radians(r.lat)) * cos(radians(r.lon) - radians($2)) + sin(radians($1)) * sin(radians(r.lat)))) <= $3
                     ORDER BY created_at DESC
-                `, [parseFloat(lat), parseFloat(lon), parseFloat(radius_km)]);
+                `, [parseFloat(lat), parseFloat(lon), radius_km]);
             } else {
                 r = await query(`
                     SELECT r.*, u.name as posted_by, u.public_tag 
@@ -82,6 +85,7 @@ async function communityRoutes(req, res, requireAuth) {
                     JOIN user_account u ON r.user_id = u.id
                     WHERE status = 'active'
                     ORDER BY created_at DESC
+                    LIMIT 200
                 `);
             }
             send(res, 200, r.rows);
@@ -93,10 +97,22 @@ async function communityRoutes(req, res, requireAuth) {
     {
         const m = match(req.method, req.url, { method: 'POST', path: '/community/resources' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const body = await parseJson(req);
             const { type, title, description, lat, lon } = body || {};
             if (!type || !title || !lat || !lon) return send(res, 400, { error: 'type, title, lat, lon required' });
+
+            const coords = validateCoords(lat, lon);
+            if (!coords) return send(res, 400, { error: 'Valid lat and lon required' });
+
+            // Spam protection: max 10 resources per user per hour
+            const recentCount = await query(
+                `SELECT COUNT(*) as cnt FROM community_resource WHERE user_id=$1 AND created_at > NOW() - INTERVAL '1 hour'`,
+                [auth.uid]
+            );
+            if (parseInt(recentCount.rows[0].cnt) >= 10) {
+                return send(res, 429, { error: 'Resource creation limit reached. Try again later.' });
+            }
 
             const r = await query(`
                 INSERT INTO community_resource (user_id, type, title, description, status, lat, lon)
@@ -112,7 +128,7 @@ async function communityRoutes(req, res, requireAuth) {
     {
         const m = match(req.method, req.url, { method: 'POST', path: '/places' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const body = await parseJson(req);
             const { label, lat, lon } = body || {};
             if (!label || typeof lat !== 'number' || typeof lon !== 'number') return send(res, 400, { error: 'label, lat, lon required' });
@@ -126,7 +142,7 @@ async function communityRoutes(req, res, requireAuth) {
     {
         const m = match(req.method, req.url, { method: 'GET', path: '/places' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const r = await query(`SELECT * FROM user_place WHERE user_id=$1 ORDER BY created_at DESC`, [auth.uid]);
             send(res, 200, r.rows);
             return true;

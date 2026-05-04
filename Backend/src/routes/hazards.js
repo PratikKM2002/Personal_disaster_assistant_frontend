@@ -10,7 +10,7 @@ async function hazardRoutes(req, res, requireAuth) {
   {
     const m = match(req.method, req.url, { method: 'GET', path: '/overview' });
     if (m) {
-      const auth = requireAuth();
+      const auth = await requireAuth();
       const lat = Number(m.search.get('lat'));
       const lon = Number(m.search.get('lon'));
       const radiusKm = Number(m.search.get('radius_km') || 100);
@@ -123,7 +123,7 @@ async function hazardRoutes(req, res, requireAuth) {
         }
       }
 
-      const [neighborRes, resourceRes, familyRes, profileRes] = await Promise.all([
+      const [neighborRes, resourceRes, familyRes, profileRes, allNeighborsRes] = await Promise.all([
         query(`
              SELECT COUNT(*) as count FROM user_neighbor un 
              JOIN user_account u ON un.neighbor_id = u.id 
@@ -138,7 +138,8 @@ async function hazardRoutes(req, res, requireAuth) {
              WHERE family_id = (SELECT family_id FROM user_account WHERE id = $1)
                AND family_id IS NOT NULL
            `, [auth.uid]),
-        query(`SELECT * FROM user_account WHERE id = $1`, [auth.uid])
+        query(`SELECT * FROM user_account WHERE id = $1`, [auth.uid]),
+        query('SELECT COUNT(*) FROM user_neighbor WHERE user_id=$1', [auth.uid])
       ]);
 
       const neighborsSafe = parseInt(neighborRes.rows[0].count);
@@ -151,7 +152,6 @@ async function hazardRoutes(req, res, requireAuth) {
       if (user?.home_lat) prepScore += 2;
       if (user?.phone) prepScore += 2;
       if (familyTotal > 0) prepScore += 3;
-      const allNeighborsRes = await query('SELECT COUNT(*) FROM user_neighbor WHERE user_id=$1', [auth.uid]);
       if (parseInt(allNeighborsRes.rows[0].count) > 0) prepScore += 3;
 
       const stats = {
@@ -179,12 +179,28 @@ async function hazardRoutes(req, res, requireAuth) {
     if (m) {
       const lat = Number(m.search.get('lat'));
       const lon = Number(m.search.get('lon'));
-      const type = m.search.get('type') || 'earthquake';
+      const type = m.search.get('type') || null; // null = all types
       const radiusKm = Number(m.search.get('radius_km') || 50);
       const since = m.search.get('since');
 
       if (Number.isNaN(lat) || Number.isNaN(lon)) {
         return send(res, 400, { error: 'lat and lon (numbers) are required' });
+      }
+
+      // Build dynamic WHERE clauses and params
+      const params = [lat, lon, radiusKm];
+      let paramIdx = 4;
+      let typeClause = '';
+      if (type) {
+        typeClause = `AND h.type = $${paramIdx}`;
+        params.push(type);
+        paramIdx++;
+      }
+      let sinceClause = '';
+      if (since) {
+        sinceClause = `AND h.occurred_at >= $${paramIdx}`;
+        params.push(since);
+        paramIdx++;
       }
 
       const sql = `
@@ -207,9 +223,9 @@ async function hazardRoutes(req, res, requireAuth) {
                 )
               ) AS dist_km
             FROM hazard h
-            WHERE h.type = $4
-            AND h.occurred_at >= NOW() - INTERVAL '48 hours'
-            ${since ? `AND h.occurred_at >= $5` : ``}
+            WHERE h.occurred_at >= NOW() - INTERVAL '48 hours'
+            ${typeClause}
+            ${sinceClause}
           )
           SELECT *
           FROM calc
@@ -217,7 +233,6 @@ async function hazardRoutes(req, res, requireAuth) {
           ORDER BY occurred_at DESC
           LIMIT 200;
         `;
-      const params = since ? [lat, lon, radiusKm, type, since] : [lat, lon, radiusKm, type];
       const r = await query(sql, params);
       send(res, 200, r.rows);
       return true;

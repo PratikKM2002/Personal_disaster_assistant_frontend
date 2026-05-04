@@ -3,17 +3,19 @@ const { send } = require('../utils/send');
 const { match } = require('../utils/url');
 const { query } = require('../config/db');
 const fetch = require('node-fetch');
+const { validateCoords } = require('../utils/validate');
 
 async function sosRoutes(req, res, requireAuth) {
     // -------- SOS: TRIGGER EMERGENCY
     {
         const m = match(req.method, req.url, { method: 'POST', path: '/sos' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const body = await parseJson(req);
             const { lat, lon } = body || {};
-            if (lat === undefined || lon === undefined) {
-                return send(res, 400, { error: 'lat and lon required' });
+            const coords = validateCoords(lat, lon);
+            if (!coords) {
+                return send(res, 400, { error: 'Valid lat (-90 to 90) and lon (-180 to 180) required' });
             }
 
             // 1. Update the user's safety status to 'danger'
@@ -61,6 +63,8 @@ async function sosRoutes(req, res, requireAuth) {
                     }));
 
                     try {
+                        const controller = new AbortController();
+                        const pushTimeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
                         await fetch('https://exp.host/--/api/v2/push/send', {
                             method: 'POST',
                             headers: {
@@ -69,11 +73,18 @@ async function sosRoutes(req, res, requireAuth) {
                                 'Content-Type': 'application/json',
                             },
                             body: JSON.stringify(messages),
+                            signal: controller.signal,
                         });
+                        clearTimeout(pushTimeout);
                         notified = tokens.length;
                         console.log(`[SOS] ${name} triggered SOS. Notified ${notified} family members.`);
                     } catch (err) {
-                        console.error('[SOS] Push notification failed:', err);
+                        if (err.name === 'AbortError') {
+                            console.error('[SOS] Push notification timed out — SOS was still saved');
+                            notified = -1; // Indicate timeout but SOS was recorded
+                        } else {
+                            console.error('[SOS] Push notification failed:', err);
+                        }
                     }
                 }
             }

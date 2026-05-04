@@ -3,23 +3,35 @@ const { send } = require('../utils/send');
 const { match } = require('../utils/url');
 const { query } = require('../config/db');
 const { reverseGeocode } = require('../utils/geocoding');
+const { validateCoords } = require('../utils/validate');
 
 async function userRoutes(req, res, requireAuth) {
     // -------- USER: UPDATE STATUS
     {
         const m = match(req.method, req.url, { method: 'POST', path: '/user/status' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const body = await parseJson(req);
             const { lat, lon, status, battery_level, message } = body || {};
-            if (lat === undefined || lon === undefined) return send(res, 400, { error: 'lat and lon required' });
+            const coords = validateCoords(lat, lon);
+            if (!coords) return send(res, 400, { error: 'Valid lat (-90 to 90) and lon (-180 to 180) required' });
 
-            await query(
-                `UPDATE user_account 
-           SET last_lat=$1, last_lon=$2, safety_status=$3, battery_level=$4, safety_message=$5, last_location_update=NOW()
-           WHERE id=$6`,
-                [lat, lon, status || 'safe', battery_level || null, message || null, auth.uid]
-            );
+            // Only update safety_status when explicitly provided (background loc updates send undefined)
+            if (status) {
+                await query(
+                    `UPDATE user_account 
+               SET last_lat=$1, last_lon=$2, safety_status=$3, battery_level=$4, safety_message=$5, last_location_update=NOW()
+               WHERE id=$6`,
+                    [lat, lon, status, battery_level || null, message || null, auth.uid]
+                );
+            } else {
+                await query(
+                    `UPDATE user_account 
+               SET last_lat=$1, last_lon=$2, battery_level=$3, last_location_update=NOW()
+               WHERE id=$4`,
+                    [lat, lon, battery_level || null, auth.uid]
+                );
+            }
 
             // Optional: Background reverse geocoding
             reverseGeocode(lat, lon).then(addr => {
@@ -37,7 +49,7 @@ async function userRoutes(req, res, requireAuth) {
     {
         const m = match(req.method, req.url, { method: 'POST', path: '/user/push-token' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const body = await parseJson(req);
             const { token } = body || {};
             if (!token) return send(res, 400, { error: 'token required' });
@@ -51,7 +63,7 @@ async function userRoutes(req, res, requireAuth) {
     {
         const m = match(req.method, req.url, { method: 'GET', path: '/user/me' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const r = await query(
                 `SELECT u.id, u.name, u.email, u.phone, u.public_tag, u.safety_status, 
                     u.last_lat, u.last_lon, u.blood_type,
@@ -81,7 +93,7 @@ async function userRoutes(req, res, requireAuth) {
     {
         const m = match(req.method, req.url, { method: 'PUT', path: '/user/profile' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const body = await parseJson(req);
             const { phone, blood_type } = body || {};
 
@@ -105,7 +117,7 @@ async function userRoutes(req, res, requireAuth) {
     {
         const m = match(req.method, req.url, { method: 'POST', path: '/user/contacts' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const body = await parseJson(req);
             const { name, phone, relationship, is_primary } = body || {};
             if (!name || !phone) return send(res, 400, { error: 'name and phone required' });
@@ -124,7 +136,7 @@ async function userRoutes(req, res, requireAuth) {
     {
         const m = match(req.method, req.url, { method: 'DELETE', path: '/user/contacts/:id' });
         if (m) {
-            const auth = requireAuth();
+            const auth = await requireAuth();
             const contactId = m.params.id;
             await query('DELETE FROM emergency_contact WHERE id=$1 AND user_id=$2', [contactId, auth.uid]);
             send(res, 200, { success: true });
