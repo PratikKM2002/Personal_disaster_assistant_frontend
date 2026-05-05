@@ -129,6 +129,8 @@ export default function RootLayout() {
                   <Stack.Screen name="documents" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
                   <Stack.Screen name="neighbors" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
                   <Stack.Screen name="navigation" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
+                  <Stack.Screen name="chat" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                  <Stack.Screen name="resources" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
                 </Stack>
 
                 {/* Global Toast Notifications */}

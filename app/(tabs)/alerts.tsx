@@ -11,13 +11,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
     Modal,
     Pressable,
-    SafeAreaView,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
     View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type FilterType = 'all' | 'critical' | 'warning' | 'advisory' | 'info';
 

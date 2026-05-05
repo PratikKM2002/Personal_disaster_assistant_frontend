@@ -9,7 +9,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
     KeyboardAvoidingView,
     Platform,
-    SafeAreaView,
     ScrollView,
     StyleSheet,
     Text,
@@ -17,6 +16,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function ChatScreen() {
     const [messages, setMessages] = useState<ChatMessage[]>([

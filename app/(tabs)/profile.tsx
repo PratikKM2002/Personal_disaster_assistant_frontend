@@ -15,7 +15,6 @@ import {
     ActivityIndicator,
     Alert,
     Modal,
-    SafeAreaView,
     ScrollView,
     StyleSheet,
     Switch,
@@ -24,6 +23,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 

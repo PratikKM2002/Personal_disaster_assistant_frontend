@@ -10,13 +10,13 @@ import React, { useEffect, useState } from 'react';
 import {
   Linking,
   Modal,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // AQI Helpers
 function getAqiLabel(aqi: number) {
@@ -257,8 +257,7 @@ export default function HomeScreen() {
                   style={styles.menuItem}
                   onPress={() => {
                     setMenuVisible(false);
-                    // @ts-ignore
-                    router.push(item.route);
+                    router.push(item.route as any);
                   }}
                 >
                   <Ionicons name={item.icon as any} size={22} color="#9ca3af" />
@@ -395,7 +394,7 @@ export default function HomeScreen() {
                 setSelectedHazard(nearest);
                 setHazardModalVisible(true);
               } else {
-                router.push('/alerts');
+                router.push('/(tabs)/alerts');
               }
             }}
           >
@@ -514,7 +513,7 @@ export default function HomeScreen() {
         <View style={styles.statsGrid}>
           <TouchableOpacity
             style={[styles.statCard, { backgroundColor: 'rgba(59, 130, 246, 0.5)' }]}
-            onPress={() => router.push('/alerts')}
+            onPress={() => router.push('/(tabs)/alerts')}
           >
             <Text style={styles.statValue}>{hazardCount}</Text>
             <Text style={[styles.statLabel, { color: '#93c5fd' }]}>Hazards</Text>
@@ -551,7 +550,7 @@ export default function HomeScreen() {
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.communityCard} onPress={() => router.push('/community')}>
+          <TouchableOpacity style={styles.communityCard} onPress={() => router.push('/(tabs)/community')}>
             <View style={[styles.communityIcon, { backgroundColor: 'rgba(59, 130, 246, 0.2)' }]}>
               <Ionicons name="share-social" size={14} color="#3b82f6" />
             </View>
