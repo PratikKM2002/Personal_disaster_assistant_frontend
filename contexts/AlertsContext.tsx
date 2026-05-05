@@ -46,10 +46,18 @@ export const AlertsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     useEffect(() => {
         if (isAuthenticated) {
-            refreshAlerts();
-            // Poll every minute
+            // Delay the first fetch to let Clerk token settle
+            const initialTimeout = setTimeout(async () => {
+                try {
+                    await refreshAlerts();
+                } catch {
+                    // If still failing, retry after another 2s
+                    setTimeout(() => refreshAlerts().catch(() => {}), 2000);
+                }
+            }, 1500);
+            // Poll every minute after that
             const interval = setInterval(refreshAlerts, 60000);
-            return () => clearInterval(interval);
+            return () => { clearTimeout(initialTimeout); clearInterval(interval); };
         } else {
             setUnreadCount(0);
         }

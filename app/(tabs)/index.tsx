@@ -157,8 +157,9 @@ export default function HomeScreen() {
 
       // Fetch overview and flood risk in parallel — only if authenticated
       if (!isAuthenticated) return;
-      try {
-        setFetchFailed(false);
+
+      // Helper: fetch with one retry (handles Clerk token not ready on first render)
+      const fetchData = async () => {
         const [overviewData, floodData] = await Promise.all([
           getOverview(lat, lon, 50),
           getFloodRisk(lat, lon)
@@ -172,9 +173,26 @@ export default function HomeScreen() {
 
         if (overviewData.stats) setStats(overviewData.stats);
         if (overviewData.weather) setWeather(overviewData.weather);
-      } catch (err) {
-        console.log('Data fetch failed', err);
-        setFetchFailed(true);
+      };
+
+      try {
+        setFetchFailed(false);
+        await fetchData();
+      } catch (err: any) {
+        // If 401 (token wasn't ready), wait and retry once
+        if (err?.status === 401 || err?.message === 'Unauthorized') {
+          console.log('Token not ready, retrying in 2s...');
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            await fetchData();
+          } catch (retryErr) {
+            console.log('Data fetch retry failed', retryErr);
+            setFetchFailed(true);
+          }
+        } else {
+          console.log('Data fetch failed', err);
+          setFetchFailed(true);
+        }
       }
     })();
   }, [isAuthenticated]);

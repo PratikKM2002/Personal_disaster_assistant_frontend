@@ -76,6 +76,9 @@ async function request<T>(
                 headers['x-user-email'] = currentUserInfo.email;
                 headers['x-user-name'] = currentUserInfo.name;
             }
+        } else {
+            // Token not ready yet — fail fast instead of sending a doomed 401 request
+            throw new ApiError('Unauthorized', 401);
         }
     }
 
@@ -138,9 +141,11 @@ async function request<T>(
         }
     }
 
-    // All retries exhausted — show toast (unless silent mode)
+    // All retries exhausted — show toast only for genuine client errors
     const errMsg = lastError?.message || 'Something went wrong';
-    if (!silent) {
+    const status = (lastError as ApiError)?.status || 0;
+    // Don't toast on 5xx (server restart), 401 (token not ready), or 0 (network blip)
+    if (!silent && status >= 400 && status < 500 && status !== 401) {
         showToast('error', 'Request Failed', errMsg);
     }
     throw lastError || new ApiError('Unknown error', 0);

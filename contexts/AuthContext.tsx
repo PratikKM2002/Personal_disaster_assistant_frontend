@@ -61,15 +61,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Handle push notifications setup when authenticated
     useEffect(() => {
-        if (isSignedIn) {
-            registerForPushNotificationsAsync().then(pushToken => {
-                if (pushToken) {
-                    console.log("Push token ready:", pushToken);
-                    api.updatePushToken(pushToken).catch(e => console.error("Push token sync failed:", e));
-                }
-            });
+        let isMounted = true;
+        
+        if (isSignedIn && clerkUser) {
+            // Small delay to let Expo bundler settle and avoid 503s during hot reload
+            const timer = setTimeout(() => {
+                getToken().then(token => {
+                    if (!isMounted || !token) return;
+                    
+                    registerForPushNotificationsAsync().then(pushToken => {
+                        if (pushToken && isMounted) {
+                            console.log("Push token ready:", pushToken);
+                            api.updatePushToken(pushToken).catch(e => 
+                                console.warn("Push token sync deferred, will retry next launch:", e.message)
+                            );
+                        }
+                    });
+                });
+            }, 2000);
+            
+            return () => { isMounted = false; clearTimeout(timer); };
         }
-    }, [isSignedIn]);
+        
+        return () => { isMounted = false; };
+    }, [isSignedIn, clerkUser, getToken]);
 
     const login = useCallback(
         async (email: string, password: string) => {
