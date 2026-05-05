@@ -6,6 +6,7 @@ type NativeMapProps = {
     userLocation: { lat: number; lng: number };
     resources: any[];
     categoryColors: Record<string, string>;
+    [key: string]: any; // Accept additional props silently
 };
 
 export default function NativeMap(_props: NativeMapProps) {

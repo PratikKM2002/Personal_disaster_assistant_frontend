@@ -6,8 +6,9 @@ import { BackendHazard, BackendShelter, getFamilyMembers, getOverview } from '@/
 import { Hazard, Resource } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import { useIsFocused } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     Alert,
     Dimensions,
@@ -40,6 +41,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function MapScreen() {
+    const isFocused = useIsFocused();
     const [selectedCategory, setSelectedCategory] = useState<CategoryType>('all');
     const [userLocation, setUserLocation] = useState<Location.LocationObjectCoords | null>(null);
     const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
@@ -133,128 +135,130 @@ export default function MapScreen() {
         };
     }, []);
 
-    // Poll for Family Members & Environment Data
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!userLocation) return;
+    // Fetch data callback (extracted so we can control when it runs)
+    const fetchData = useCallback(async () => {
+        if (!userLocation) return;
 
+        try {
+            // 1. Fetch Family Members
             try {
-                // 1. Fetch Family Members
-                try {
-                    const familyData = await getFamilyMembers();
-                    const members = familyData.members.map(m => ({
-                        id: String(m.id),
-                        name: m.name,
-                        status: m.safety_status || 'unknown',
-                        location: 'Unknown', // You could reverse geocode here if you had a helper
-                        lastUpdate: m.last_location_update ? new Date(m.last_location_update).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Unknown',
-                        coordinates: (m.last_lat && m.last_lon) ? [m.last_lon, m.last_lat] : undefined
-                    }));
-                    setFamilyMembers(members as any);
-                } catch (e) {
-                    console.log('Family fetch failed (maybe not logged in):', e);
-                }
-
-                // 2. Fetch Overview (Hazards + Shelters)
-                const overview = await getOverview(userLocation.latitude, userLocation.longitude, 10);
-
-                // Process Hazards
-                if (overview.hazards && overview.hazards.length > 0) {
-                    const mappedHazards: Hazard[] = overview.hazards.map((h: BackendHazard) => {
-                        const mag = h.attributes?.mag;
-                        const sevNum = Number(h.severity);
-                        let severity: Hazard['severity'] = 'moderate';
-                        if (sevNum >= 0.7) severity = 'critical';
-                        else if (sevNum >= 0.4) severity = 'high';
-
-                        const type = (h.type || 'hazard').toLowerCase() as Hazard['type'];
-                        let title = h.attributes?.title || `${type.charAt(0).toUpperCase() + type.slice(1)}`;
-
-                        if (type === 'earthquake' && mag) {
-                            title = `Earthquake M${mag.toFixed(1)}`;
-                        }
-
-                        const place = h.attributes?.place || `${h.dist_km?.toFixed(0)}km away`;
-
-                        return {
-                            id: `bh-${h.id}`,
-                            type: type,
-                            title: `${title} — ${place}`,
-                            severity,
-                            zone: `${h.dist_km?.toFixed(0)}km`,
-                            location: { lat: h.lat, lng: h.lon },
-                            description: h.message || h.attributes?.description || `${title} detected at ${place}. Source: ${h.source}.`,
-                            action: severity === 'critical' ? 'Evacuate area immediately' : 'Stay alert and follow local news',
-                            evacuationRoute: [],
-                            shelters: [],
-                        };
-                    });
-                    setHazards(mappedHazards);
-                } else {
-                    setHazards([]);
-                }
-
-                // Process Shelters (Resources)
-                if (overview.shelters?.items && overview.shelters.items.length > 0) {
-                    const mappedShelters: Resource[] = overview.shelters.items.map((s: BackendShelter) => {
-                        let category: 'medical' | 'shelter' | 'emergency' | 'supplies' = 'shelter';
-                        let typeDisplay = 'Emergency Shelter';
-
-                        const rawType = s.type?.toLowerCase() || 'shelter';
-
-                        if (rawType === 'hospital' || rawType === 'clinic') {
-                            category = 'medical';
-                            typeDisplay = rawType.charAt(0).toUpperCase() + rawType.slice(1);
-                        } else if (rawType === 'fire_station' || rawType === 'police' || rawType === 'ambulance') {
-                            category = 'emergency';
-                            typeDisplay = rawType === 'fire_station' ? 'Fire Station' : rawType.charAt(0).toUpperCase() + rawType.slice(1);
-                        } else if (rawType === 'supply' || rawType === 'pharmacy' || rawType === 'supermarket') {
-                            category = 'supplies';
-                            typeDisplay = rawType === 'supply' ? 'Supplies' : rawType.charAt(0).toUpperCase() + rawType.slice(1);
-                        } else {
-                            // Default to shelter
-                            category = 'shelter';
-                            typeDisplay = 'Emergency Shelter';
-                        }
-
-                        return {
-                            id: `bs-${s.id}`,
-                            name: s.name,
-                            type: typeDisplay,
-                            category: category,
-                            distance: s.dist_km != null ? `${s.dist_km.toFixed(1)} km` : 'N/A',
-                            address: s.address || 'Address not available',
-                            phone: s.phone || undefined,
-                            hours: 'Open 24/7',
-                            status: (s.status === 'open' ? 'open' : s.status === 'closed' ? 'closed' : 'limited') as Resource['status'],
-                            capacity: s.capacity ? `${s.capacity} Beds` : undefined,
-                            icon: category === 'medical' ? '🏥' :
-                                category === 'emergency' ? '🚒' :
-                                    category === 'supplies' ? '📦' : '🏠',
-                            coordinates: [s.lon, s.lat] as [number, number],
-                            inHazardZone: false,
-                        };
-                    });
-                    setBackendResources(mappedShelters);
-                } else {
-                    setBackendResources([]);
-                }
-
-                setDataLoaded(true);
-
-            } catch (err) {
-                console.error('Error fetching dashboard data:', err);
+                const familyData = await getFamilyMembers();
+                const members = familyData.members.map(m => ({
+                    id: String(m.id),
+                    name: m.name,
+                    status: m.safety_status || 'unknown',
+                    location: 'Unknown',
+                    lastUpdate: m.last_location_update ? new Date(m.last_location_update).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Unknown',
+                    coordinates: (m.last_lat && m.last_lon) ? [m.last_lon, m.last_lat] : undefined
+                }));
+                setFamilyMembers(members as any);
+            } catch (e) {
+                console.log('Family fetch failed (maybe not logged in):', e);
             }
-        };
 
-        // Initial fetch
+            // 2. Fetch Overview (Hazards + Shelters)
+            const overview = await getOverview(userLocation.latitude, userLocation.longitude, 10);
+
+            // Process Hazards
+            if (overview.hazards && overview.hazards.length > 0) {
+                const mappedHazards: Hazard[] = overview.hazards.map((h: BackendHazard) => {
+                    const mag = h.attributes?.mag;
+                    const sevNum = Number(h.severity);
+                    let severity: Hazard['severity'] = 'moderate';
+                    if (sevNum >= 0.7) severity = 'critical';
+                    else if (sevNum >= 0.4) severity = 'high';
+
+                    const type = (h.type || 'hazard').toLowerCase() as Hazard['type'];
+                    let title = h.attributes?.title || `${type.charAt(0).toUpperCase() + type.slice(1)}`;
+
+                    if (type === 'earthquake' && mag) {
+                        title = `Earthquake M${mag.toFixed(1)}`;
+                    }
+
+                    const place = h.attributes?.place || `${h.dist_km?.toFixed(0)}km away`;
+
+                    return {
+                        id: `bh-${h.id}`,
+                        type: type,
+                        title: `${title} — ${place}`,
+                        severity,
+                        zone: `${h.dist_km?.toFixed(0)}km`,
+                        location: { lat: h.lat, lng: h.lon },
+                        description: h.message || h.attributes?.description || `${title} detected at ${place}. Source: ${h.source}.`,
+                        action: severity === 'critical' ? 'Evacuate area immediately' : 'Stay alert and follow local news',
+                        evacuationRoute: [],
+                        shelters: [],
+                    };
+                });
+                setHazards(mappedHazards);
+            } else {
+                setHazards([]);
+            }
+
+            // Process Shelters (Resources)
+            if (overview.shelters?.items && overview.shelters.items.length > 0) {
+                const mappedShelters: Resource[] = overview.shelters.items.map((s: BackendShelter) => {
+                    let category: 'medical' | 'shelter' | 'emergency' | 'supplies' = 'shelter';
+                    let typeDisplay = 'Emergency Shelter';
+
+                    const rawType = s.type?.toLowerCase() || 'shelter';
+
+                    if (rawType === 'hospital' || rawType === 'clinic') {
+                        category = 'medical';
+                        typeDisplay = rawType.charAt(0).toUpperCase() + rawType.slice(1);
+                    } else if (rawType === 'fire_station' || rawType === 'police' || rawType === 'ambulance') {
+                        category = 'emergency';
+                        typeDisplay = rawType === 'fire_station' ? 'Fire Station' : rawType.charAt(0).toUpperCase() + rawType.slice(1);
+                    } else if (rawType === 'supply' || rawType === 'pharmacy' || rawType === 'supermarket') {
+                        category = 'supplies';
+                        typeDisplay = rawType === 'supply' ? 'Supplies' : rawType.charAt(0).toUpperCase() + rawType.slice(1);
+                    } else {
+                        category = 'shelter';
+                        typeDisplay = 'Emergency Shelter';
+                    }
+
+                    return {
+                        id: `bs-${s.id}`,
+                        name: s.name,
+                        type: typeDisplay,
+                        category: category,
+                        distance: s.dist_km != null ? `${s.dist_km.toFixed(1)} km` : 'N/A',
+                        address: s.address || 'Address not available',
+                        phone: s.phone || undefined,
+                        hours: 'Open 24/7',
+                        status: (s.status === 'open' ? 'open' : s.status === 'closed' ? 'closed' : 'limited') as Resource['status'],
+                        capacity: s.capacity ? `${s.capacity} Beds` : undefined,
+                        icon: category === 'medical' ? '🏥' :
+                            category === 'emergency' ? '🚒' :
+                                category === 'supplies' ? '📦' : '🏠',
+                        coordinates: [s.lon, s.lat] as [number, number],
+                        inHazardZone: false,
+                    };
+                });
+                setBackendResources(mappedShelters);
+            } else {
+                setBackendResources([]);
+            }
+
+            setDataLoaded(true);
+
+        } catch (err) {
+            console.error('Error fetching dashboard data:', err);
+        }
+    }, [userLocation]);
+
+    // Poll for Family Members & Environment Data — only when tab is focused
+    useEffect(() => {
+        if (!userLocation || !isFocused) return;
+
+        // Initial fetch when tab becomes focused
         fetchData();
 
         // Polling interval (15 seconds for family updates)
         const interval = setInterval(fetchData, 15000);
         return () => clearInterval(interval);
 
-    }, [userLocation]);
+    }, [userLocation, isFocused, fetchData]);
 
     const filteredResources = backendResources.filter(
         r => selectedCategory === 'all' || r.category === selectedCategory
@@ -339,6 +343,7 @@ export default function MapScreen() {
                     familyMembers={familyMembers}
                     isLiveLocation={locationPermission === true}
                     focusLocation={focusLocation}
+                    onNavigate={handleNavigate}
                 />
 
                 {/* Overlaid Status Bar */}

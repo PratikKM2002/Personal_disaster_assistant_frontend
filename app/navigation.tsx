@@ -53,12 +53,18 @@ export default function NavigationScreen() {
     const fetchRoute = useCallback(async (mode: TravelMode) => {
         try {
             setLoading(true);
-            const location = await Location.getCurrentPositionAsync({});
-            setUserLoc(location.coords);
+
+            // Reuse existing GPS coords from watchPosition if available
+            let coords = userLoc;
+            if (!coords) {
+                const location = await Location.getCurrentPositionAsync({});
+                coords = location.coords;
+                setUserLoc(coords);
+            }
 
             if (destLat && destLon) {
                 const data = await getRoute(
-                    [location.coords.latitude, location.coords.longitude],
+                    [coords.latitude, coords.longitude],
                     [Number(destLat), Number(destLon)],
                     mode
                 );
@@ -70,7 +76,7 @@ export default function NavigationScreen() {
         } finally {
             setLoading(false);
         }
-    }, [destLat, destLon]);
+    }, [destLat, destLon, userLoc]);
 
     useEffect(() => {
         fetchRoute(travelMode);
