@@ -2,7 +2,7 @@
   "expo": {
     "name": "Personal_disaster_assistant_frontend",
     "slug": "Personal_disaster_assistant_frontend",
-    "owner": "madara192002",
+    "owner": "sheetal00000",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -22,9 +22,17 @@
         "NSLocationAlwaysUsageDescription": "This app tracks your location in the background to keep your family updated on your safety.",
         "UIBackgroundModes": [
           "location",
+          "fetch",
+          "location",
+          "fetch",
+          "location",
+          "fetch",
+          "location",
           "fetch"
-        ]
-      }
+        ],
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "y"
     },
     "android": {
       "adaptiveIcon": {
@@ -39,7 +47,8 @@
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION"
-      ]
+      ],
+      "package": "com.sheetal00000.Personal_disaster_assistant_frontend"
     },
     "web": {
       "bundler": "metro",
@@ -68,11 +77,11 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "1a592d92-0039-4185-9d41-6c78ce87bb45"
+        "projectId": "1f8ba8ff-5893-43f8-81fe-dcf3b6f121ee"
       }
     },
     "updates": {
-      "url": "https://u.expo.dev/1a592d92-0039-4185-9d41-6c78ce87bb45"
+      "url": "https://u.expo.dev/1f8ba8ff-5893-43f8-81fe-dcf3b6f121ee"
     }
   }
 }
