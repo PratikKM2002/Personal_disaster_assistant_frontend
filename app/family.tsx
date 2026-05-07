@@ -50,7 +50,6 @@ export default function FamilyScreen() {
     const [showJoinUI, setShowJoinUI] = useState(false);
     const [currentView, setCurrentView] = useState<ViewType>('list');
     const [userLocation, setUserLocation] = useState(MOCK_USER_LOCATION);
-    const [simulatedFamily, setSimulatedFamily] = useState<UIFamilyMember[]>([]);
     const [isAdmin, setIsAdmin] = useState(false);
 
     const [showSafetyModal, setShowSafetyModal] = useState(false);
@@ -65,21 +64,7 @@ export default function FamilyScreen() {
         "Power outage"
     ];
 
-    // Generate random family positions near the user
-    const generateFamilyLocations = (center: { lat: number; lng: number }) => {
-        return family.map((member) => { // Use 'family' state instead of MOCK_FAMILY
-            if (!member.coordinates) return member;
-            const latOffset = (Math.random() - 0.5) * 0.04;
-            const lngOffset = (Math.random() - 0.5) * 0.04;
-            return {
-                ...member,
-                coordinates: [
-                    center.lng + lngOffset,
-                    center.lat + latOffset,
-                ] as [number, number],
-            };
-        });
-    };
+
 
     const { isAuthenticated } = useAuth();
 
@@ -154,7 +139,6 @@ export default function FamilyScreen() {
                     safety_message: m.safety_message,
                 }));
                 setFamily(mapped);
-                setSimulatedFamily(mapped); // For map view
             }
         } catch (err) {
             console.error('Failed to load family', err);
@@ -306,13 +290,7 @@ export default function FamilyScreen() {
         }
     };
 
-    // Periodically shuffle family positions
-    useEffect(() => {
-        const interval = setInterval(() => {
-            setSimulatedFamily(generateFamilyLocations(userLocation));
-        }, 15000);
-        return () => clearInterval(interval);
-    }, [userLocation, family]); // Added 'family' to dependencies to ensure it uses the latest family data
+
 
     const markSafe = (id: string) => {
         // Optimistic update
@@ -540,14 +518,14 @@ export default function FamilyScreen() {
                                     userLocation={userLocation}
                                     resources={[]}
                                     categoryColors={{}}
-                                    familyMembers={simulatedFamily}
+                                    familyMembers={family}
                                     isLiveLocation={true}
                                 />
                             </View>
 
                             {/* Family member cards below map with Navigate buttons */}
                             <ScrollView style={styles.mapMemberList} contentContainerStyle={styles.mapMemberListContent}>
-                                {simulatedFamily.filter(m => m.coordinates).map((member) => {
+                                {family.filter(m => m.coordinates).map((member) => {
                                     const statusColors = getStatusColor(member.status);
                                     return (
                                         <View key={member.id} style={styles.mapMemberCard}>
