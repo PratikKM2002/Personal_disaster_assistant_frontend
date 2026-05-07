@@ -555,3 +555,53 @@ export async function getRoute(
         isSafe: route.isSafe
     };
 }
+
+// ─── Place Search (Nominatim Geocoding) ───────────────────────────
+
+export interface PlaceResult {
+    placeId: string;
+    displayName: string;
+    name: string;
+    lat: number;
+    lon: number;
+    type: string;
+}
+
+export async function searchPlaces(query: string): Promise<PlaceResult[]> {
+    if (!query || query.trim().length < 2) return [];
+    const encoded = encodeURIComponent(query.trim());
+    const url = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=5&addressdetails=1`;
+
+    const res = await fetch(url, {
+        headers: {
+            'User-Agent': 'GuardianAI-DisasterApp/1.0',
+            'Accept': 'application/json',
+        },
+    });
+
+    if (!res.ok) return [];
+    const data = await res.json();
+
+    return data.map((item: any) => ({
+        placeId: item.place_id?.toString() || item.osm_id?.toString(),
+        displayName: item.display_name,
+        name: item.display_name?.split(',')[0] || item.name || query,
+        lat: parseFloat(item.lat),
+        lon: parseFloat(item.lon),
+        type: item.type || item.class || 'place',
+    }));
+}
+
+// ─── Hazards for Navigation Corridor ───────────────────────────────
+
+export async function getHazardsForNavigation(
+    lat: number, lon: number, radiusKm: number = 50
+): Promise<any[]> {
+    try {
+        const path = `/hazards?lat=${lat}&lon=${lon}&radius_km=${radiusKm}`;
+        const hazards = await request<any[]>(path);
+        return hazards || [];
+    } catch {
+        return [];
+    }
+}

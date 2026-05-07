@@ -2,20 +2,22 @@ import NativeMap from '@/components/NativeMap';
 import SafetyStatusBar from '@/components/SafetyStatusBar';
 import { AppColors, BorderRadius } from '@/constants/Colors';
 import { MOCK_USER_LOCATION } from '@/constants/Data';
-import { BackendHazard, BackendShelter, getFamilyMembers, getOverview } from '@/services/api';
+import { BackendHazard, BackendShelter, getFamilyMembers, getOverview, PlaceResult, searchPlaces } from '@/services/api';
 import { Hazard, Resource } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useIsFocused } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Alert,
     Dimensions,
+    Keyboard,
     Platform,
     ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View
 } from 'react-native';
@@ -50,6 +52,13 @@ export default function MapScreen() {
     const [backendResources, setBackendResources] = useState<Resource[]>([]);
     const [dataLoaded, setDataLoaded] = useState(false);
     const [isFullScreen, setIsFullScreen] = useState(false);
+
+    // Destination search
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchResults, setSearchResults] = useState<PlaceResult[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const [searchFocused, setSearchFocused] = useState(false);
+    const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Handle navigation params (e.g. from Alerts)
     const params = useLocalSearchParams<{ lat: string; lng: string; hazardTitle: string; hazardType: string; hazardSeverity: string; ts: string }>();
@@ -322,12 +331,80 @@ export default function MapScreen() {
         }
     };
 
+    // ─── Destination Search ───────────────────────────────
+    const handleSearchChange = (text: string) => {
+        setSearchQuery(text);
+        if (searchTimeout.current) clearTimeout(searchTimeout.current);
+        if (text.trim().length < 2) {
+            setSearchResults([]);
+            setIsSearching(false);
+            return;
+        }
+        setIsSearching(true);
+        searchTimeout.current = setTimeout(async () => {
+            try {
+                const results = await searchPlaces(text);
+                setSearchResults(results);
+            } catch {
+                setSearchResults([]);
+            } finally {
+                setIsSearching(false);
+            }
+        }, 500);
+    };
+
+    const handleSelectPlace = (place: PlaceResult) => {
+        Keyboard.dismiss();
+        setSearchQuery('');
+        setSearchResults([]);
+        setSearchFocused(false);
+        router.push({
+            pathname: '/navigation',
+            params: {
+                destLat: place.lat.toString(),
+                destLon: place.lon.toString(),
+                destName: place.name,
+            }
+        });
+    };
+
+    const clearSearch = () => {
+        setSearchQuery('');
+        setSearchResults([]);
+        setIsSearching(false);
+    };
+
     return (
         <SafeAreaView style={styles.container}>
-            {/* Header - Hidden in Full Screen */}
+            {/* Header with Search Bar - Hidden in Full Screen */}
             {!isFullScreen && (
                 <View style={styles.header}>
-                    <Text style={styles.title}>Nearby Resources</Text>
+                    <View style={styles.searchContainer}>
+                        <Ionicons name="search" size={18} color="#9ca3af" style={{ marginLeft: 12 }} />
+                        <TextInput
+                            style={styles.searchInput}
+                            placeholder="Search destination..."
+                            placeholderTextColor="#6b7280"
+                            value={searchQuery}
+                            onChangeText={handleSearchChange}
+                            onFocus={() => setSearchFocused(true)}
+                            onBlur={() => setTimeout(() => setSearchFocused(false), 200)}
+                            returnKeyType="search"
+                        />
+                        {searchQuery.length > 0 && (
+                            <TouchableOpacity onPress={clearSearch} style={{ padding: 8 }}>
+                                <Ionicons name="close-circle" size={18} color="#6b7280" />
+                            </TouchableOpacity>
+                        )}
+                        <TouchableOpacity
+                            style={styles.searchNavButton}
+                            onPress={() => {
+                                if (searchResults.length > 0) handleSelectPlace(searchResults[0]);
+                            }}
+                        >
+                            <Ionicons name="navigate" size={18} color="#fff" />
+                        </TouchableOpacity>
+                    </View>
                     <Text style={styles.subtitle}>
                         {locationPermission === true
                             ? '📍 Live location active'
@@ -335,6 +412,36 @@ export default function MapScreen() {
                                 ? '📍 Using default location'
                                 : '📍 Getting your location...'}
                     </Text>
+
+                    {/* Search Results Dropdown */}
+                    {searchFocused && (searchResults.length > 0 || isSearching) && (
+                        <View style={styles.searchDropdown}>
+                            {isSearching && (
+                                <View style={styles.searchLoadingRow}>
+                                    <Text style={styles.searchLoadingText}>Searching...</Text>
+                                </View>
+                            )}
+                            {searchResults.map((place) => (
+                                <TouchableOpacity
+                                    key={place.placeId}
+                                    style={styles.searchResultRow}
+                                    onPress={() => handleSelectPlace(place)}
+                                    activeOpacity={0.7}
+                                >
+                                    <View style={styles.searchResultIcon}>
+                                        <Ionicons name="location" size={16} color="#3b82f6" />
+                                    </View>
+                                    <View style={styles.searchResultInfo}>
+                                        <Text style={styles.searchResultName} numberOfLines={1}>{place.name}</Text>
+                                        <Text style={styles.searchResultAddress} numberOfLines={1}>
+                                            {place.displayName}
+                                        </Text>
+                                    </View>
+                                    <Ionicons name="arrow-forward" size={16} color="#4b5563" />
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    )}
                 </View>
             )}
 
@@ -531,6 +638,7 @@ const styles = StyleSheet.create({
     header: {
         padding: 16,
         paddingBottom: 8,
+        zIndex: 100,
     },
     title: {
         color: '#fff',
@@ -539,8 +647,82 @@ const styles = StyleSheet.create({
     },
     subtitle: {
         color: '#9ca3af',
+        fontSize: 12,
+        marginTop: 6,
+        marginLeft: 4,
+    },
+    // Search bar
+    searchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: AppColors.border,
+        height: 48,
+        gap: 6,
+    },
+    searchInput: {
+        flex: 1,
+        color: '#fff',
+        fontSize: 15,
+        paddingVertical: 10,
+        paddingHorizontal: 6,
+    },
+    searchNavButton: {
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        backgroundColor: '#3b82f6',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 4,
+    },
+    searchDropdown: {
+        backgroundColor: '#1a1a2e',
+        borderRadius: 14,
+        marginTop: 6,
+        borderWidth: 1,
+        borderColor: AppColors.border,
+        overflow: 'hidden',
+        maxHeight: 280,
+    },
+    searchLoadingRow: {
+        padding: 14,
+        alignItems: 'center',
+    },
+    searchLoadingText: {
+        color: '#6b7280',
+        fontSize: 13,
+    },
+    searchResultRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        gap: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(255,255,255,0.06)',
+    },
+    searchResultIcon: {
+        width: 34,
+        height: 34,
+        borderRadius: 10,
+        backgroundColor: 'rgba(59, 130, 246, 0.15)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    searchResultInfo: {
+        flex: 1,
+    },
+    searchResultName: {
+        color: '#fff',
         fontSize: 14,
-        marginTop: 4,
+        fontWeight: '600',
+    },
+    searchResultAddress: {
+        color: '#6b7280',
+        fontSize: 11,
+        marginTop: 2,
     },
     mapContainer: {
         height: 280,

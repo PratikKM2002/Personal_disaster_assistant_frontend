@@ -1,6 +1,6 @@
 import NativeMap from '@/components/NativeMap';
 import { AppColors, BorderRadius } from '@/constants/Colors';
-import { getRoute, RouteData } from '@/services/api';
+import { getHazardsForNavigation, getRoute, RouteData } from '@/services/api';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -10,6 +10,7 @@ import {
     Alert,
     Animated,
     Dimensions,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -35,9 +36,14 @@ export default function NavigationScreen() {
     const [travelMode, setTravelMode] = useState<TravelMode>('driving');
     const [panelExpanded, setPanelExpanded] = useState(false);
     const [warningsExpanded, setWarningsExpanded] = useState(false);
+    const [navHazards, setNavHazards] = useState<any[]>([]);
+    const [currentStepIdx, setCurrentStepIdx] = useState(0);
+    const [heading, setHeading] = useState(0);
+    const [arrived, setArrived] = useState(false);
     const mapRef = useRef<any>(null);
     const pulseAnim = useRef(new Animated.Value(0.6)).current;
     const panelHeight = useRef(new Animated.Value(height * 0.12)).current;
+    const lastRerouteTime = useRef(Date.now());
 
     // Pulse animation for loading
     useEffect(() => {
@@ -82,17 +88,79 @@ export default function NavigationScreen() {
         fetchRoute(travelMode);
     }, [travelMode]);
 
-    // Live location tracking
+    // Live location tracking + heading
     useEffect(() => {
-        let subscription: Location.LocationSubscription | null = null;
+        let locSub: Location.LocationSubscription | null = null;
+        let headSub: any = null;
         (async () => {
-            subscription = await Location.watchPositionAsync(
-                { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 5 },
+            locSub = await Location.watchPositionAsync(
+                { accuracy: Location.Accuracy.High, timeInterval: 2000, distanceInterval: 5 },
                 (loc) => setUserLoc(loc.coords)
             );
+            // watchHeadingAsync only works on native (crashes on web)
+            if (Platform.OS !== 'web') {
+                try {
+                    headSub = await Location.watchHeadingAsync((h) => setHeading(h.trueHeading || h.magHeading || 0));
+                } catch { /* heading not available on all devices */ }
+            }
         })();
-        return () => { subscription?.remove(); };
+        return () => {
+            locSub?.remove();
+            try { headSub?.remove?.(); } catch { /* ignore */ }
+        };
     }, []);
+
+    // Fetch hazards along route corridor
+    useEffect(() => {
+        if (!userLoc) return;
+        (async () => {
+            try {
+                const h = await getHazardsForNavigation(userLoc.latitude, userLoc.longitude, 30);
+                setNavHazards(h.map((hz: any) => ({
+                    id: `nav-h-${hz.id}`,
+                    type: (hz.type || 'hazard').toLowerCase(),
+                    title: hz.attributes?.title || hz.type || 'Hazard',
+                    severity: hz.severity >= 0.7 ? 'critical' : hz.severity >= 0.4 ? 'high' : 'moderate',
+                    location: { lat: hz.lat, lng: hz.lon },
+                })));
+            } catch { /* ignore */ }
+        })();
+    }, [userLoc ? `${userLoc.latitude.toFixed(2)},${userLoc.longitude.toFixed(2)}` : '']);
+
+    // Live step progression + off-route rerouting + arrival detection
+    useEffect(() => {
+        if (!route || !userLoc) return;
+        const steps = route.steps;
+        const destLatN = Number(destLat);
+        const destLonN = Number(destLon);
+
+        // Check arrival (within 50m of destination)
+        const distToDest = getDistKm(userLoc.latitude, userLoc.longitude, destLatN, destLonN);
+        if (distToDest < 0.05) { setArrived(true); return; }
+
+        // Find current step: the first step whose cumulative distance hasn't been passed
+        // Simple approach: find step closest to user's current position
+        if (steps.length > 0) {
+            let cumulativeDist = 0;
+            const totalRouteKm = route.distance / 1000;
+            const progressKm = totalRouteKm - distToDest;
+            for (let i = 0; i < steps.length; i++) {
+                cumulativeDist += steps[i].distance / 1000;
+                if (cumulativeDist > progressKm) {
+                    setCurrentStepIdx(i);
+                    break;
+                }
+            }
+        }
+
+        // Auto-reroute if drifted too far from route or every 2 min
+        const now = Date.now();
+        const timeSinceReroute = now - lastRerouteTime.current;
+        if (timeSinceReroute > 120000) {
+            lastRerouteTime.current = now;
+            fetchRoute(travelMode);
+        }
+    }, [userLoc, route]);
 
     // Panel animation
     const togglePanel = () => {
@@ -120,7 +188,7 @@ export default function NavigationScreen() {
 
     const hasWarnings = route?.warnings && route.warnings.length > 0;
     const isSafe = route?.isSafe !== false;
-    const nextStep = route?.steps[0];
+    const currentStep = route?.steps[currentStepIdx] || route?.steps[0];
 
     if (loading && !route) {
         return (
@@ -147,10 +215,11 @@ export default function NavigationScreen() {
                         resources={[]}
                         categoryColors={{}}
                         routeGeometry={route?.geometry}
+                        hazards={navHazards}
                         focusLocation={route ? undefined : { lat: Number(destLat), lng: Number(destLon) }}
                         destination={{ lat: Number(destLat), lng: Number(destLon), name: destName }}
                         pitch={60}
-                        bearing={0}
+                        bearing={heading}
                     />
                 )}
             </View>
@@ -162,12 +231,12 @@ export default function NavigationScreen() {
                 </TouchableOpacity>
                 <View style={[styles.nextStepInfo, hasWarnings && !isSafe && styles.nextStepInfoWarning]}>
                     <View style={styles.nextStepIcon}>
-                        <Ionicons name={getInstructionIcon(nextStep?.instruction)} size={28} color="#fff" />
+                        <Ionicons name={getInstructionIcon(currentStep?.instruction)} size={28} color="#fff" />
                     </View>
                     <View style={styles.nextStepTextContainer}>
-                        <Text style={styles.nextStepLabel}>NEXT</Text>
+                        <Text style={styles.nextStepLabel}>{currentStepIdx === 0 ? 'NEXT' : `STEP ${currentStepIdx + 1}`}</Text>
                         <Text style={styles.nextStepInstruction} numberOfLines={2}>
-                            {nextStep?.instruction || 'Following route...'}
+                            {currentStep?.instruction || 'Following route...'}
                         </Text>
                     </View>
                 </View>
@@ -292,9 +361,9 @@ export default function NavigationScreen() {
                         </View>
                         <ScrollView contentContainerStyle={styles.instructionsList} showsVerticalScrollIndicator={false}>
                             {route?.steps.map((step, idx) => (
-                                <View key={idx} style={styles.stepItem}>
-                                    <View style={styles.stepNumberCircle}>
-                                        <Text style={styles.stepNumber}>{idx + 1}</Text>
+                                <View key={idx} style={[styles.stepItem, idx === currentStepIdx && styles.stepItemActive]}>
+                                    <View style={[styles.stepNumberCircle, idx === currentStepIdx && styles.stepNumberCircleActive]}>
+                                        <Text style={[styles.stepNumber, idx === currentStepIdx && { color: '#fff' }]}>{idx + 1}</Text>
                                     </View>
                                     <View style={styles.stepIconContainer}>
                                         <Ionicons name={getInstructionIcon(step.instruction)} size={18} color="#3b82f6" />
@@ -314,8 +383,31 @@ export default function NavigationScreen() {
                     </View>
                 )}
             </Animated.View>
+
+            {/* Arrival Overlay */}
+            {arrived && (
+                <View style={styles.arrivedOverlay}>
+                    <View style={styles.arrivedCard}>
+                        <Ionicons name="flag" size={56} color="#22c55e" />
+                        <Text style={styles.arrivedTitle}>You've Arrived!</Text>
+                        <Text style={styles.arrivedSubtitle}>{destName}</Text>
+                        <TouchableOpacity style={styles.arrivedButton} onPress={() => router.back()}>
+                            <Text style={styles.arrivedButtonText}>Done</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            )}
         </View>
     );
+}
+
+// Haversine distance in km
+function getDistKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function getInstructionIcon(instruction: string | undefined): any {
@@ -699,5 +791,55 @@ const styles = StyleSheet.create({
         color: '#6b7280',
         textAlign: 'center',
         marginTop: 40,
+    },
+    // Active step highlighting
+    stepItemActive: {
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        borderRadius: 12,
+        marginHorizontal: -8,
+        paddingHorizontal: 8,
+    },
+    stepNumberCircleActive: {
+        backgroundColor: '#3b82f6',
+    },
+    // Arrival overlay
+    arrivedOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0, 0, 0, 0.75)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 200,
+    },
+    arrivedCard: {
+        backgroundColor: '#1a1a2e',
+        borderRadius: 28,
+        padding: 40,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(34, 197, 94, 0.3)',
+        width: width * 0.8,
+    },
+    arrivedTitle: {
+        color: '#fff',
+        fontSize: 28,
+        fontWeight: '900',
+        marginTop: 16,
+    },
+    arrivedSubtitle: {
+        color: '#9ca3af',
+        fontSize: 15,
+        marginTop: 6,
+    },
+    arrivedButton: {
+        backgroundColor: '#22c55e',
+        borderRadius: 16,
+        paddingVertical: 14,
+        paddingHorizontal: 48,
+        marginTop: 28,
+    },
+    arrivedButtonText: {
+        color: '#fff',
+        fontSize: 17,
+        fontWeight: '800',
     },
 });
