@@ -1,27 +1,176 @@
 import { AppColors, BorderRadius } from '@/constants/Colors';
-import { getStatusColor, makePhoneCall, sendSMS } from '@/utils';
-import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import React, { useState } from 'react';
 import {
+    addNeighbor,
+    getNeighbors,
+    getProfile,
+    removeNeighbor,
+    updateStatus
+} from '@/services/api';
+import { formatTimeAgo, getStatusColor, makePhoneCall, sendSMS } from '@/utils';
+import { Ionicons } from '@expo/vector-icons';
+import * as Battery from 'expo-battery';
+import * as Location from 'expo-location';
+import { router } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    Keyboard,
+    Modal,
+    Platform,
+    RefreshControl,
     ScrollView,
+    Share,
     StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
+    TouchableWithoutFeedback,
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function NeighborsScreen() {
-    // TODO: Fetch neighbors from backend like community.tsx does
     const [neighbors, setNeighbors] = useState<any[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedFilter, setSelectedFilter] = useState('all');
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [userProfile, setUserProfile] = useState<any>(null);
+
+    // Modal states
+    const [showAddNeighbor, setShowAddNeighbor] = useState(false);
+    const [neighborTagInput, setNeighborTagInput] = useState('');
+    const [showStatusModal, setShowStatusModal] = useState(false);
+    const [statusMessage, setStatusMessage] = useState('');
+
+    const PRESET_MESSAGES = [
+        "I need water",
+        "I need medical aid",
+        "I am trapped",
+        "I need evacuation help",
+        "Power outage"
+    ];
+
+    const fetchData = useCallback(async () => {
+        try {
+            const [neighborList, profile] = await Promise.all([
+                getNeighbors(),
+                getProfile(),
+            ]);
+            setNeighbors(neighborList);
+            setUserProfile(profile);
+        } catch (error) {
+            console.error('Error fetching neighbors:', error);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
+
+    const onRefresh = () => {
+        setRefreshing(true);
+        fetchData();
+    };
+
+    const handleAddNeighbor = async () => {
+        Keyboard.dismiss();
+        if (!neighborTagInput.trim()) return;
+        try {
+            await addNeighbor(neighborTagInput.trim());
+            Alert.alert('Success', 'Neighbor added successfully!');
+            setNeighborTagInput('');
+            setShowAddNeighbor(false);
+            onRefresh();
+        } catch (error: any) {
+            Alert.alert('Error', error.response?.data?.error || 'Failed to add neighbor');
+        }
+    };
+
+    const handleRemoveNeighbor = async (id: number, name: string) => {
+        Alert.alert(
+            'Remove Neighbor',
+            `Are you sure you want to remove ${name}?`,
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Remove',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await removeNeighbor(id);
+                            onRefresh();
+                        } catch (error) {
+                            Alert.alert('Error', 'Failed to remove neighbor');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleMarkSafe = async () => {
+        try {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert('Permission Denied', 'Location permission is required.');
+                return;
+            }
+            const loc = await Location.getCurrentPositionAsync({});
+
+            let battery = 80;
+            try {
+                if (Platform.OS !== 'web') {
+                    const level = await Battery.getBatteryLevelAsync();
+                    if (level !== -1) battery = Math.round(level * 100);
+                }
+            } catch (e) { console.log('Battery fetch failed', e); }
+
+            await updateStatus(loc.coords.latitude, loc.coords.longitude, 'safe', battery, 'Marked safe via Neighbors');
+            Alert.alert('Success', 'You are marked as safe!');
+            fetchData();
+        } catch (error) {
+            Alert.alert('Error', 'Failed to update status');
+        }
+    };
+
+    const handleReportIssue = async () => {
+        Keyboard.dismiss();
+        if (!statusMessage) {
+            Alert.alert('Error', 'Please enter a message or select a preset.');
+            return;
+        }
+        try {
+            const loc = await Location.getCurrentPositionAsync({});
+            await updateStatus(loc.coords.latitude, loc.coords.longitude, 'needs-help', 80, statusMessage);
+            Alert.alert('Success', 'Status updated successfully!');
+            setShowStatusModal(false);
+            setStatusMessage('');
+            fetchData();
+        } catch (error) {
+            Alert.alert('Error', 'Failed to update status');
+        }
+    };
+
+    const handleInviteNeighbor = async () => {
+        const tag = userProfile?.public_tag || 'your tag';
+        try {
+            await Share.share({
+                message: `Join my neighbor network on Guardian AI! Add me using my tag: ${tag}\n\nDownload Guardian AI to stay connected during emergencies.`,
+            });
+        } catch (error) {
+            console.log('Share cancelled');
+        }
+    };
 
     const filteredNeighbors = neighbors.filter(n => {
         const matchesSearch = n.name.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesFilter = selectedFilter === 'all' || n.status === selectedFilter;
+        const matchesFilter = selectedFilter === 'all' ||
+            n.safety_status === selectedFilter;
         return matchesSearch && matchesFilter;
     });
 
@@ -34,9 +183,13 @@ export default function NeighborsScreen() {
         }
     };
 
-    const updateStatus = () => {
-        // Would trigger a status update flow
-    };
+    const currentStatus = userProfile?.safety_status || 'unknown';
+    const statusDisplay = currentStatus === 'safe' ? 'Safe' :
+        currentStatus === 'needs-help' ? 'Needs Help' :
+            currentStatus === 'offering-help' ? 'Offering Help' : 'Unknown';
+    const statusColor = currentStatus === 'safe' ? '#22c55e' :
+        currentStatus === 'needs-help' ? '#ef4444' :
+            currentStatus === 'offering-help' ? '#3b82f6' : '#6b7280';
 
     return (
         <SafeAreaView style={styles.container}>
@@ -49,26 +202,41 @@ export default function NeighborsScreen() {
                     <Ionicons name="chevron-back" size={24} color="#fff" />
                 </TouchableOpacity>
                 <Text style={styles.title}>Neighbor Network</Text>
-                <TouchableOpacity style={styles.addButton}>
+                <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={() => setShowAddNeighbor(true)}
+                >
                     <Ionicons name="person-add" size={20} color="#fff" />
                 </TouchableOpacity>
             </View>
 
             {/* My Status Card */}
-            <View style={styles.myStatusCard}>
+            <View style={[styles.myStatusCard, { borderColor: `${statusColor}44` }]}>
                 <View style={styles.myStatusInfo}>
                     <Text style={styles.myStatusLabel}>Your Status</Text>
                     <View style={styles.myStatusBadge}>
-                        <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
-                        <Text style={styles.myStatusText}>Safe</Text>
+                        <Ionicons
+                            name={getStatusIcon(currentStatus) as any}
+                            size={16}
+                            color={statusColor}
+                        />
+                        <Text style={[styles.myStatusText, { color: statusColor }]}>{statusDisplay}</Text>
                     </View>
                 </View>
-                <TouchableOpacity
-                    style={styles.updateStatusButton}
-                    onPress={updateStatus}
-                >
-                    <Text style={styles.updateStatusText}>Update</Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity
+                        style={[styles.updateStatusButton, { backgroundColor: `${statusColor}33` }]}
+                        onPress={handleMarkSafe}
+                    >
+                        <Text style={[styles.updateStatusText, { color: statusColor }]}>I'm Safe</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.updateStatusButton, { backgroundColor: 'rgba(239, 68, 68, 0.2)' }]}
+                        onPress={() => setShowStatusModal(true)}
+                    >
+                        <Text style={[styles.updateStatusText, { color: '#ef4444' }]}>SOS</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {/* Search Bar */}
@@ -115,105 +283,211 @@ export default function NeighborsScreen() {
             </ScrollView>
 
             {/* Neighbor List */}
-            <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-                {filteredNeighbors.map((neighbor) => {
-                    const statusColors = getStatusColor(neighbor.status);
-                    return (
-                        <View key={neighbor.id} style={styles.neighborCard}>
-                            <View style={styles.neighborHeader}>
-                                <View style={[styles.avatar, { backgroundColor: statusColors.bg }]}>
-                                    <Text style={styles.avatarText}>{neighbor.name[0]}</Text>
-                                </View>
-                                <View style={styles.neighborInfo}>
-                                    <View style={styles.nameRow}>
-                                        <Text style={styles.neighborName}>{neighbor.name}</Text>
-                                        {neighbor.apartment && (
-                                            <Text style={styles.apartment}>{neighbor.apartment}</Text>
-                                        )}
-                                    </View>
-                                    <View style={styles.metaRow}>
-                                        <Ionicons name="location" size={12} color="#9ca3af" />
-                                        <Text style={styles.distance}>{neighbor.distance}</Text>
-                                        <Ionicons
-                                            name={getStatusIcon(neighbor.status) as any}
-                                            size={12}
-                                            color={statusColors.marker}
-                                        />
-                                        <Text style={[styles.statusText, { color: statusColors.text }]}>
-                                            {neighbor.status === 'needs-help' ? 'Needs Help' :
-                                                neighbor.status === 'offering-help' ? 'Offering Help' :
-                                                    neighbor.status === 'safe' ? 'Safe' : 'Unknown'}
-                                        </Text>
-                                    </View>
-                                </View>
+            <ScrollView
+                style={styles.list}
+                contentContainerStyle={styles.listContent}
+                refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />
+                }
+            >
+                {loading ? (
+                    <ActivityIndicator size="large" color={AppColors.primary} style={{ marginTop: 40 }} />
+                ) : filteredNeighbors.length === 0 ? (
+                    <View style={{ alignItems: 'center', paddingTop: 40 }}>
+                        <Ionicons name="people-outline" size={48} color="#4b5563" />
+                        <Text style={styles.emptyText}>
+                            {neighbors.length === 0
+                                ? 'No neighbors added yet.\nShare your tag to connect!'
+                                : 'No neighbors match your filter.'}
+                        </Text>
+                        {userProfile?.public_tag && (
+                            <View style={styles.myTagBox}>
+                                <Text style={styles.myTagLabel}>YOUR TAG</Text>
+                                <Text style={styles.myTagValue}>{userProfile.public_tag}</Text>
                             </View>
-
-                            {neighbor.specialNeeds && (
-                                <View style={styles.specialNeedsBox}>
-                                    <Ionicons name="alert-circle" size={14} color="#ef4444" />
-                                    <Text style={styles.specialNeedsText}>{neighbor.specialNeeds}</Text>
-                                </View>
-                            )}
-
-                            {neighbor.canOffer && neighbor.canOffer.length > 0 && (
-                                <View style={styles.tagsSection}>
-                                    <Text style={styles.tagsLabel}>Can Offer:</Text>
-                                    <View style={styles.tagsRow}>
-                                        {neighbor.canOffer.map((item, idx) => (
-                                            <View key={idx} style={styles.offerTag}>
-                                                <Text style={styles.offerTagText}>{item}</Text>
-                                            </View>
-                                        ))}
+                        )}
+                    </View>
+                ) : (
+                    filteredNeighbors.map((neighbor) => {
+                        const statusColors = getStatusColor(neighbor.safety_status || 'unknown');
+                        return (
+                            <View key={neighbor.id} style={styles.neighborCard}>
+                                <View style={styles.neighborHeader}>
+                                    <View style={[styles.avatar, { backgroundColor: statusColors.bg }]}>
+                                        <Text style={styles.avatarText}>{neighbor.name[0]}</Text>
+                                    </View>
+                                    <View style={styles.neighborInfo}>
+                                        <View style={styles.nameRow}>
+                                            <Text style={styles.neighborName}>{neighbor.name}</Text>
+                                            <TouchableOpacity onPress={() => handleRemoveNeighbor(neighbor.id, neighbor.name)}>
+                                                <Ionicons name="trash-outline" size={16} color="#ef4444" />
+                                            </TouchableOpacity>
+                                        </View>
+                                        <View style={styles.metaRow}>
+                                            <Ionicons
+                                                name={getStatusIcon(neighbor.safety_status) as any}
+                                                size={12}
+                                                color={statusColors.marker}
+                                            />
+                                            <Text style={[styles.statusText, { color: statusColors.text }]}>
+                                                {neighbor.safety_status !== 'safe' && neighbor.safety_message
+                                                    ? neighbor.safety_message
+                                                    : (neighbor.safety_status === 'needs-help' ? 'Needs Help' :
+                                                        neighbor.safety_status === 'offering-help' ? 'Offering Help' :
+                                                            neighbor.safety_status === 'safe' ? 'Safe' : 'Unknown')}
+                                            </Text>
+                                            {neighbor.last_location_update && (
+                                                <Text style={styles.distance}>
+                                                    • Updated {formatTimeAgo(new Date(neighbor.last_location_update))}
+                                                </Text>
+                                            )}
+                                        </View>
                                     </View>
                                 </View>
-                            )}
 
-                            {neighbor.needs && neighbor.needs.length > 0 && (
-                                <View style={styles.tagsSection}>
-                                    <Text style={styles.tagsLabel}>Needs:</Text>
-                                    <View style={styles.tagsRow}>
-                                        {neighbor.needs.map((item, idx) => (
-                                            <View key={idx} style={styles.needTag}>
-                                                <Text style={styles.needTagText}>{item}</Text>
-                                            </View>
-                                        ))}
-                                    </View>
-                                </View>
-                            )}
-
-                            <View style={styles.neighborActions}>
-                                <TouchableOpacity
-                                    style={styles.messageBtn}
-                                    onPress={() => neighbor.phone && sendSMS(neighbor.phone)}
-                                >
-                                    <Ionicons name="chatbubble" size={16} color="#3b82f6" />
-                                    <Text style={styles.messageBtnText}>Message</Text>
-                                </TouchableOpacity>
-                                {neighbor.phone && (
+                                <View style={styles.neighborActions}>
                                     <TouchableOpacity
-                                        style={styles.callBtn}
-                                        onPress={() => makePhoneCall(neighbor.phone!)}
+                                        style={styles.messageBtn}
+                                        onPress={() => neighbor.phone && sendSMS(neighbor.phone)}
                                     >
-                                        <Ionicons name="call" size={16} color="#22c55e" />
+                                        <Ionicons name="chatbubble" size={16} color="#3b82f6" />
+                                        <Text style={styles.messageBtnText}>Message</Text>
                                     </TouchableOpacity>
-                                )}
-                                {neighbor.status === 'needs-help' && (
-                                    <TouchableOpacity style={styles.helpBtn}>
-                                        <Ionicons name="heart" size={16} color="#fff" />
-                                        <Text style={styles.helpBtnText}>Offer Help</Text>
-                                    </TouchableOpacity>
-                                )}
+                                    {neighbor.phone && (
+                                        <TouchableOpacity
+                                            style={styles.callBtn}
+                                            onPress={() => makePhoneCall(neighbor.phone!)}
+                                        >
+                                            <Ionicons name="call" size={16} color="#22c55e" />
+                                        </TouchableOpacity>
+                                    )}
+                                    {neighbor.safety_status === 'needs-help' && (
+                                        <TouchableOpacity
+                                            style={styles.helpBtn}
+                                            onPress={() => neighbor.phone && sendSMS(neighbor.phone, 'I can help! Where are you?')}
+                                        >
+                                            <Ionicons name="heart" size={16} color="#fff" />
+                                            <Text style={styles.helpBtnText}>Offer Help</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
                             </View>
-                        </View>
-                    );
-                })}
+                        );
+                    })
+                )}
 
                 {/* Invite Neighbors */}
-                <TouchableOpacity style={styles.inviteButton}>
+                <TouchableOpacity style={styles.inviteButton} onPress={handleInviteNeighbor}>
                     <Ionicons name="person-add" size={20} color="#3b82f6" />
                     <Text style={styles.inviteText}>Invite Neighbors to Network</Text>
                 </TouchableOpacity>
             </ScrollView>
+
+            {/* Add Neighbor Modal */}
+            <Modal
+                animationType="slide"
+                transparent={true}
+                visible={showAddNeighbor}
+                onRequestClose={() => setShowAddNeighbor(false)}
+            >
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.modalContent}>
+                            <Text style={styles.modalTitle}>Add Neighbor</Text>
+                            <Text style={styles.modalSub}>Enter their unique tag to add them.</Text>
+
+                            {userProfile?.public_tag && (
+                                <View style={[styles.myTagBox, { marginBottom: 16 }]}>
+                                    <Text style={styles.myTagLabel}>YOUR TAG TO SHARE</Text>
+                                    <Text style={styles.myTagValue}>{userProfile.public_tag}</Text>
+                                </View>
+                            )}
+
+                            <TextInput
+                                style={styles.modalInput}
+                                placeholder="e.g. A1B2C3"
+                                placeholderTextColor="#666"
+                                value={neighborTagInput}
+                                onChangeText={t => setNeighborTagInput(t.toUpperCase())}
+                                maxLength={6}
+                                returnKeyType="done"
+                                blurOnSubmit={true}
+                                onSubmitEditing={handleAddNeighbor}
+                            />
+
+                            <View style={styles.modalButtons}>
+                                <TouchableOpacity
+                                    style={styles.modalBtnCancel}
+                                    onPress={() => { Keyboard.dismiss(); setShowAddNeighbor(false); }}
+                                >
+                                    <Text style={styles.modalBtnText}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.modalBtnConfirm} onPress={handleAddNeighbor}>
+                                    <Text style={[styles.modalBtnText, { fontWeight: 'bold' }]}>Add</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    </View>
+                </TouchableWithoutFeedback>
+            </Modal>
+
+            {/* Status Update Modal */}
+            <Modal
+                animationType="slide"
+                transparent={true}
+                visible={showStatusModal}
+                onRequestClose={() => setShowStatusModal(false)}
+            >
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.modalContent}>
+                            <Text style={styles.modalTitle}>Update Safety Status</Text>
+                            <Text style={styles.modalSub}>Select a message to notify neighbors:</Text>
+
+                            <View style={{ gap: 8, marginBottom: 16 }}>
+                                {PRESET_MESSAGES.map(msg => (
+                                    <TouchableOpacity
+                                        key={msg}
+                                        style={[
+                                            styles.presetBtn,
+                                            statusMessage === msg && styles.presetBtnActive
+                                        ]}
+                                        onPress={() => setStatusMessage(msg)}
+                                    >
+                                        <Text style={[styles.presetBtnText, statusMessage === msg && { color: '#fff' }]}>{msg}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+
+                            <TextInput
+                                style={styles.modalInput}
+                                placeholder="Or enter custom message..."
+                                placeholderTextColor="#666"
+                                value={statusMessage}
+                                onChangeText={setStatusMessage}
+                                returnKeyType="done"
+                                blurOnSubmit={true}
+                                onSubmitEditing={Keyboard.dismiss}
+                            />
+
+                            <View style={styles.modalButtons}>
+                                <TouchableOpacity
+                                    style={styles.modalBtnCancel}
+                                    onPress={() => { Keyboard.dismiss(); setShowStatusModal(false); }}
+                                >
+                                    <Text style={styles.modalBtnText}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.modalBtnConfirm, { backgroundColor: '#ef4444' }]}
+                                    onPress={handleReportIssue}
+                                >
+                                    <Text style={[styles.modalBtnText, { fontWeight: 'bold' }]}>SOS / Broadcast</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    </View>
+                </TouchableWithoutFeedback>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -335,6 +609,34 @@ const styles = StyleSheet.create({
     listContent: {
         padding: 16,
         gap: 12,
+        paddingBottom: 100,
+    },
+    emptyText: {
+        color: '#9ca3af',
+        textAlign: 'center',
+        marginTop: 16,
+        fontSize: 14,
+        lineHeight: 20,
+    },
+    myTagBox: {
+        backgroundColor: 'rgba(59, 130, 246, 0.2)',
+        padding: 12,
+        borderRadius: 10,
+        alignItems: 'center',
+        marginTop: 16,
+    },
+    myTagLabel: {
+        color: '#3b82f6',
+        fontSize: 10,
+        fontWeight: 'bold',
+        letterSpacing: 1,
+    },
+    myTagValue: {
+        color: '#fff',
+        fontSize: 20,
+        fontWeight: '700',
+        letterSpacing: 2,
+        marginTop: 4,
     },
     neighborCard: {
         backgroundColor: 'rgba(255, 255, 255, 0.05)',
@@ -365,16 +667,13 @@ const styles = StyleSheet.create({
     nameRow: {
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'space-between',
         gap: 8,
     },
     neighborName: {
         color: '#fff',
         fontSize: 16,
         fontWeight: '600',
-    },
-    apartment: {
-        color: '#9ca3af',
-        fontSize: 12,
     },
     metaRow: {
         flexDirection: 'row',
@@ -385,58 +684,10 @@ const styles = StyleSheet.create({
     distance: {
         color: '#9ca3af',
         fontSize: 11,
-        marginRight: 8,
     },
     statusText: {
         fontSize: 11,
         fontWeight: '500',
-    },
-    specialNeedsBox: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        backgroundColor: 'rgba(239, 68, 68, 0.15)',
-        padding: 10,
-        borderRadius: 8,
-        marginTop: 12,
-    },
-    specialNeedsText: {
-        color: '#fca5a5',
-        fontSize: 12,
-        flex: 1,
-    },
-    tagsSection: {
-        marginTop: 10,
-    },
-    tagsLabel: {
-        color: '#9ca3af',
-        fontSize: 10,
-        marginBottom: 6,
-    },
-    tagsRow: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 6,
-    },
-    offerTag: {
-        backgroundColor: 'rgba(34, 197, 94, 0.2)',
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 6,
-    },
-    offerTagText: {
-        color: '#86efac',
-        fontSize: 11,
-    },
-    needTag: {
-        backgroundColor: 'rgba(249, 115, 22, 0.2)',
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 6,
-    },
-    needTagText: {
-        color: '#fdba74',
-        fontSize: 11,
     },
     neighborActions: {
         flexDirection: 'row',
@@ -497,5 +748,71 @@ const styles = StyleSheet.create({
         color: '#3b82f6',
         fontSize: 14,
         fontWeight: '600',
+    },
+    // Modal Styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.7)',
+        justifyContent: 'center',
+        padding: 20,
+    },
+    modalContent: {
+        backgroundColor: '#1f1f1f',
+        borderRadius: 16,
+        padding: 20,
+        borderWidth: 1,
+        borderColor: '#333',
+    },
+    modalTitle: {
+        color: '#fff',
+        fontSize: 20,
+        fontWeight: '700',
+        marginBottom: 8,
+    },
+    modalSub: {
+        color: '#9ca3af',
+        marginBottom: 16,
+    },
+    modalInput: {
+        backgroundColor: '#333',
+        color: '#fff',
+        borderRadius: 8,
+        padding: 12,
+        fontSize: 16,
+        marginBottom: 16,
+    },
+    modalButtons: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        gap: 12,
+    },
+    modalBtnCancel: {
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+    },
+    modalBtnConfirm: {
+        backgroundColor: '#3b82f6',
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+    },
+    modalBtnText: {
+        color: '#fff',
+        fontSize: 16,
+    },
+    presetBtn: {
+        backgroundColor: '#333',
+        padding: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#444',
+    },
+    presetBtnActive: {
+        backgroundColor: '#ef4444',
+        borderColor: '#ef4444',
+    },
+    presetBtnText: {
+        color: '#ccc',
+        textAlign: 'center',
     },
 });

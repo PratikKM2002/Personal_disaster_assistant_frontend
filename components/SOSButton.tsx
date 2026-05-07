@@ -111,6 +111,7 @@ export default function SOSButton() {
             <Animated.View style={[styles.container, { transform: [{ scale: pulseAnim }] }]}>
                 <TouchableOpacity
                     style={styles.button}
+                    onPress={handleLongPress}
                     onLongPress={handleLongPress}
                     delayLongPress={LONG_PRESS_DURATION}
                     activeOpacity={0.8}
@@ -176,7 +177,7 @@ export default function SOSButton() {
 const styles = StyleSheet.create({
     container: {
         position: 'absolute',
-        bottom: 100,
+        bottom: 170,
         right: 20,
         zIndex: 100,
     },

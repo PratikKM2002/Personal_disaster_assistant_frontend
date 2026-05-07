@@ -13,6 +13,7 @@ import {
     Alert,
     Modal,
     Platform,
+    RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
@@ -44,6 +45,7 @@ export default function FamilyScreen() {
     const [family, setFamily] = useState<UIFamilyMember[]>([]);
     const [familyId, setFamilyId] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
     const [joinCode, setJoinCode] = useState('');
     const [showJoinUI, setShowJoinUI] = useState(false);
     const [currentView, setCurrentView] = useState<ViewType>('list');
@@ -118,8 +120,12 @@ export default function FamilyScreen() {
         }
     };
 
-    const loadFamily = async () => {
-        setLoading(true);
+    const loadFamily = async (isRefresh = false) => {
+        if (isRefresh) {
+            setRefreshing(true);
+        } else {
+            setLoading(true);
+        }
         try {
             const data = await getFamilyMembers();
             setIsAdmin(data.my_role === 'admin');
@@ -155,6 +161,7 @@ export default function FamilyScreen() {
             Alert.alert('Error', 'Failed to load family data');
         } finally {
             setLoading(false);
+            setRefreshing(false);
         }
     };
 
@@ -386,12 +393,20 @@ export default function FamilyScreen() {
                     {familyId && <Text style={{ color: '#9ca3af', fontSize: 12, textAlign: 'center' }}>Code: {familyId}</Text>}
                 </View>
                 {!showJoinUI ? (
-                    <TouchableOpacity
-                        style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
-                        onPress={handleLeaveFamily}
-                    >
-                        <Ionicons name="exit-outline" size={24} color="#ef4444" />
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <TouchableOpacity
+                            style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
+                            onPress={() => loadFamily(true)}
+                        >
+                            <Ionicons name="refresh" size={22} color="#3b82f6" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
+                            onPress={handleLeaveFamily}
+                        >
+                            <Ionicons name="exit-outline" size={24} color="#ef4444" />
+                        </TouchableOpacity>
+                    </View>
                 ) : (
                     <View style={{ width: 40 }} />
                 )}
@@ -574,7 +589,17 @@ export default function FamilyScreen() {
                         </View>
                     ) : (
                         /* ===== LIST VIEW ===== */
-                        <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+                        <ScrollView
+                            style={styles.list}
+                            contentContainerStyle={styles.listContent}
+                            refreshControl={
+                                <RefreshControl
+                                    refreshing={refreshing}
+                                    onRefresh={() => loadFamily(true)}
+                                    tintColor="#fff"
+                                />
+                            }
+                        >
                             {family.map((member) => {
                                 const statusColors = getStatusColor(member.status);
                                 return (
