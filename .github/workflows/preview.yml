@@ -1,0 +1,78 @@
+name: Expo Preview QR Code
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Publish to Expo
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            eas update --branch pr-${{ github.event.number }} --message "Preview for PR #${{ github.event.number }}"
+          else
+            eas update --branch main --message "Update from main branch"
+          fi
+
+      - name: Get Expo Project URL
+        id: expo
+        run: |
+          echo "expo_url=https://expo.dev/@sheetal00000/Personal_disaster_assistant_frontend?update-channel=${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'main' }}" >> $GITHUB_OUTPUT
+
+      - name: Generate QR Code URL
+        id: qr
+        run: |
+          QR_URL="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${{ steps.expo.outputs.expo_url }}"
+          echo "qr_url=$QR_URL" >> $GITHUB_OUTPUT
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.issue.number;
+            const qrUrl = '${{ steps.qr.outputs.qr_url }}';
+            const expoUrl = '${{ steps.expo.outputs.expo_url }}';
+            
+            const commentBody = `## 📱 Expo Preview Ready
+              
+            Scan this QR code with **Expo Go** app to test this PR:
+              
+            <img src="${qrUrl}" width="250" height="250" />
+              
+            [Open in Expo](${expoUrl})
+              
+            > This QR code works until the next push to this PR.`;
+            
+            github.rest.issues.createComment({
+              issue_number: prNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: commentBody
+            });
