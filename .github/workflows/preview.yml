@@ -3,15 +3,12 @@ name: Expo Preview
 on:
   pull_request:
     branches: [master, main]
-  push:
-    branches: [master, main]
 
 jobs:
   preview:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
-      contents: read
     
     steps:
       - name: Checkout
@@ -31,34 +28,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Create preview for Expo Go
-        uses: expo/expo-github-action/preview@v8
-        with:
-          command: eas update --auto --branch preview
-          comment: true
-          project-flavor: expo-go
-EAS
-      - name: Get preview URL
-        id: preview
-        run: |
-          echo "url=https://expo.dev/@sheetal00000/Personal_disaster_assistant_frontend?update-channel=preview" >> $GITHUB_OUTPUT
+      - name: Publish update
+        run: eas update --branch preview --message "PR preview"
 
-      - name: Add comment with QR
+      - name: Add QR comment
         uses: actions/github-script@v7
         with:
           script: |
-            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${{ steps.preview.outputs.url }}`;
+            const url = 'https://expo.dev/@sheetal00000/Personal_disaster_assistant_frontend?update-channel=preview';
+            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(url)}`;
+            
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## 📱 Expo Go Preview
+              body: `## 📱 Expo Preview
               
-              Scan this QR code with Expo Go:
+              Scan with Expo Go:
               
-              <img src="${qrUrl}" width="250" />
+              ![QR Code](${qrUrl})
               
-              **Or open:** ${{ steps.preview.outputs.url }}
-              
-              > No login required.`
+              **URL:** ${url}`
             });
