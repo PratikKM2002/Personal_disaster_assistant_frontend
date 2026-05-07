@@ -183,11 +183,13 @@ const NativeMap = React.forwardRef<any, NativeMapProps>(({
     // Animate to focusLocation when it changes
     React.useEffect(() => {
         if (mapRef.current && focusLocation) {
+            // Use a zoom level that makes hazard circles clearly visible
+            // latitudeDelta 0.04 ~ 4.4km view, which fits a 2km radius circle nicely
             mapRef.current.animateToRegion({
                 latitude: focusLocation.lat,
                 longitude: focusLocation.lng,
-                latitudeDelta: 0.05,
-                longitudeDelta: 0.05,
+                latitudeDelta: 0.04,
+                longitudeDelta: 0.04,
             }, 1000);
         }
     }, [focusLocation]);

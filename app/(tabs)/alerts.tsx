@@ -69,6 +69,7 @@ export default function AlertsScreen() {
                             icon: '⚠️'
                         } : undefined,
                         isRead: false,
+                        hazardType: a.hazard_type || 'hazard',
                     };
                 });
                 setAlerts(mapped);
@@ -136,12 +137,16 @@ export default function AlertsScreen() {
 
     const handleNavigate = (alert: AlertType) => {
         if (alert.actionDestination) {
+            const sev = (alert as any).hazardType || 'hazard';
             router.push({
                 pathname: '/(tabs)/map',
                 params: {
                     lat: alert.actionDestination.coordinates[1],
                     lng: alert.actionDestination.coordinates[0],
-                    hazardTitle: alert.title,
+                    hazardTitle: alert.actionDestination.name || alert.title,
+                    hazardType: sev,
+                    hazardSeverity: alert.type,
+                    ts: Date.now().toString(),
                 }
             });
         }

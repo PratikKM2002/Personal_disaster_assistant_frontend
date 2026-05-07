@@ -52,8 +52,9 @@ export default function MapScreen() {
     const [isFullScreen, setIsFullScreen] = useState(false);
 
     // Handle navigation params (e.g. from Alerts)
-    const params = useLocalSearchParams<{ lat: string; lng: string; hazardTitle: string }>();
+    const params = useLocalSearchParams<{ lat: string; lng: string; hazardTitle: string; hazardType: string; hazardSeverity: string; ts: string }>();
     const [focusLocation, setFocusLocation] = useState<{ lat: number; lng: number } | null>(null);
+    const [focusedHazard, setFocusedHazard] = useState<{ lat: number; lng: number; title: string; type: string; severity: string } | null>(null);
 
     useEffect(() => {
         if (params.lat && params.lng) {
@@ -61,9 +62,16 @@ export default function MapScreen() {
             const lng = Number(params.lng);
             if (!isNaN(lat) && !isNaN(lng)) {
                 setFocusLocation({ lat, lng });
+                setFocusedHazard({
+                    lat,
+                    lng,
+                    title: params.hazardTitle || 'Hazard Location',
+                    type: params.hazardType || 'hazard',
+                    severity: params.hazardSeverity || 'warning',
+                });
             }
         }
-    }, [params.lat, params.lng]);
+    }, [params.lat, params.lng, params.ts]);
 
     // Request location permission and start tracking
     useEffect(() => {
@@ -339,7 +347,33 @@ export default function MapScreen() {
                     userLocation={userLocation ? { lat: userLocation.latitude, lng: userLocation.longitude } : MOCK_USER_LOCATION}
                     resources={filteredResources}
                     categoryColors={CATEGORY_COLORS}
-                    hazards={hazards}
+                    hazards={(() => {
+                        // Merge focused hazard from alerts if not already present
+                        if (!focusedHazard) return hazards;
+                        const alreadyExists = hazards.some(h =>
+                            Math.abs(h.location.lat - focusedHazard.lat) < 0.001 &&
+                            Math.abs(h.location.lng - focusedHazard.lng) < 0.001
+                        );
+                        if (alreadyExists) return hazards;
+                        // Add the focused hazard as a temporary entry
+                        const severityMap: Record<string, 'critical' | 'high' | 'moderate'> = {
+                            critical: 'critical',
+                            warning: 'high',
+                            advisory: 'moderate',
+                        };
+                        return [...hazards, {
+                            id: 'focused-hazard',
+                            type: focusedHazard.type as any,
+                            title: focusedHazard.title,
+                            severity: severityMap[focusedHazard.severity] || 'high',
+                            zone: '',
+                            location: { lat: focusedHazard.lat, lng: focusedHazard.lng },
+                            description: focusedHazard.title,
+                            action: 'Stay alert',
+                            evacuationRoute: [],
+                            shelters: [],
+                        }];
+                    })()}
                     familyMembers={familyMembers}
                     isLiveLocation={locationPermission === true}
                     focusLocation={focusLocation}
