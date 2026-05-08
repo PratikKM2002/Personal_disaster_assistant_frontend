@@ -58,6 +58,7 @@ export default function HomeScreen() {
   // Real-time backend data
   const [hazardCount, setHazardCount] = useState(0);
   const [hazards, setHazards] = useState<any[]>([]);
+  const [nearbyHazards, setNearbyHazards] = useState<any[]>([]); // within 10km
   const [shelterCount, setShelterCount] = useState(0);
   const [weather, setWeather] = useState<WeatherData | undefined>(undefined);
   const [weatherModalVisible, setWeatherModalVisible] = useState(false);
@@ -168,6 +169,23 @@ export default function HomeScreen() {
         const h = overviewData.hazards || [];
         setHazardCount(h.length);
         setHazards(h);
+
+        // Compute nearby hazards (within 10km) — only these count as "active"
+        const nearby = h.filter((hz: any) => {
+          const hLat = hz.location?.lat ?? hz.lat;
+          const hLon = hz.location?.lng ?? hz.lon;
+          if (hLat === undefined || hLon === undefined) return false;
+          const phi1 = lat * Math.PI / 180;
+          const phi2 = hLat * Math.PI / 180;
+          const dPhi = (hLat - lat) * Math.PI / 180;
+          const dLon = (hLon - lon) * Math.PI / 180;
+          const a = Math.sin(dPhi / 2) * Math.sin(dPhi / 2) +
+            Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+          const distKm = 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          return distKm <= 10;
+        });
+        setNearbyHazards(nearby);
+
         setShelterCount(overviewData.shelters?.items?.length || 0);
         setFloodRisk(floodData);
 
@@ -335,6 +353,23 @@ export default function HomeScreen() {
                   const h = overviewData.hazards || [];
                   setHazardCount(h.length);
                   setHazards(h);
+
+                  // Recompute nearby hazards on retry too
+                  const nearby = h.filter((hz: any) => {
+                    const hLat = hz.location?.lat ?? hz.lat;
+                    const hLon = hz.location?.lng ?? hz.lon;
+                    if (hLat === undefined || hLon === undefined) return false;
+                    const phi1 = currentUserLocation.lat * Math.PI / 180;
+                    const phi2 = hLat * Math.PI / 180;
+                    const dPhi = (hLat - currentUserLocation.lat) * Math.PI / 180;
+                    const dLon = (hLon - currentUserLocation.lng) * Math.PI / 180;
+                    const a = Math.sin(dPhi / 2) * Math.sin(dPhi / 2) +
+                      Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                    const distKm = 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                    return distKm <= 10;
+                  });
+                  setNearbyHazards(nearby);
+
                   setShelterCount(overviewData.shelters?.items?.length || 0);
                   setFloodRisk(floodData);
                   if (overviewData.stats) setStats(overviewData.stats);
@@ -387,10 +422,10 @@ export default function HomeScreen() {
         {/* Quick Actions */}
         <View style={styles.quickActions}>
           <TouchableOpacity
-            style={styles.alertsQuickAction}
+            style={[styles.alertsQuickAction, nearbyHazards.length > 0 && { backgroundColor: 'rgba(239, 68, 68, 0.25)', borderColor: 'rgba(239, 68, 68, 0.5)' }]}
             onPress={() => {
-              if (hazards.length > 0) {
-                const nearest = hazards.reduce((prev, curr) => getDist(curr) < getDist(prev) ? curr : prev);
+              if (nearbyHazards.length > 0) {
+                const nearest = nearbyHazards.reduce((prev, curr) => getDist(curr) < getDist(prev) ? curr : prev);
                 setSelectedHazard(nearest);
                 setHazardModalVisible(true);
               } else {
@@ -398,8 +433,16 @@ export default function HomeScreen() {
               }
             }}
           >
-            <Text style={styles.alertsLabel}>{hazards.length > 0 ? `${hazards.length} Active Hazards` : 'No Active Hazards'}</Text>
-            <Text style={styles.alertsList}>{hazards.length === 0 ? 'Monitoring...' : 'Tap for details'}</Text>
+            <Text style={styles.alertsLabel}>
+              {nearbyHazards.length > 0
+                ? `${nearbyHazards.length} Active Hazard${nearbyHazards.length !== 1 ? 's' : ''}`
+                : 'No Active Hazards'}
+            </Text>
+            <Text style={styles.alertsList}>
+              {nearbyHazards.length === 0
+                ? (hazards.length > 0 ? `Monitoring ${hazards.length} distant` : 'Monitoring...')
+                : 'Tap for details'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.sosButton}
@@ -420,7 +463,13 @@ export default function HomeScreen() {
             <Text style={styles.mapText}>Tap to view map</Text>
           </View>
           <View style={styles.mapOverlay}>
-            <Text style={styles.mapLabel}>{hazardCount > 0 ? `🔴 ${hazardCount} Hazard Zones` : '✅ Area Clear'}</Text>
+            <Text style={styles.mapLabel}>
+              {nearbyHazards.length > 0
+                ? `🔴 ${nearbyHazards.length} Nearby Hazard${nearbyHazards.length !== 1 ? 's' : ''}`
+                : hazards.length > 0
+                  ? `🟡 ${hazards.length} Monitored Zone${hazards.length !== 1 ? 's' : ''}`
+                  : '✅ Area Clear'}
+            </Text>
           </View>
         </TouchableOpacity>
 
@@ -471,20 +520,15 @@ export default function HomeScreen() {
         <View style={styles.actionPlan}>
           <Text style={styles.sectionTitle}>Action Plan</Text>
 
-          {hazards.length > 0 ? (
+          {nearbyHazards.length > 0 ? (
             <>
               <TouchableOpacity style={styles.actionItem} onPress={() => {
-                const nearest = hazards.reduce((prev, curr) => getDist(curr) < getDist(prev) ? curr : prev);
-                const d = getDist(nearest);
-                if (nearest && d < 10) {
-                  router.push('/(tabs)/map');
-                } else {
-                  setSelectedHazard(nearest);
-                  setHazardModalVisible(true);
-                }
+                const nearest = nearbyHazards.reduce((prev, curr) => getDist(curr) < getDist(prev) ? curr : prev);
+                setSelectedHazard(nearest);
+                setHazardModalVisible(true);
               }}>
-                <Text style={styles.actionCheck}>⚠️</Text>
-                <Text style={styles.actionText}><Text style={styles.actionBold}>Monitor:</Text> Check nearest hazard details</Text>
+                <Text style={styles.actionCheck}>🚨</Text>
+                <Text style={styles.actionText}><Text style={styles.actionBold}>Urgent:</Text> {nearbyHazards.length} hazard{nearbyHazards.length !== 1 ? 's' : ''} within 10km</Text>
                 <Ionicons name="chevron-forward" size={16} color="#666" style={{ marginLeft: 'auto' }} />
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionItem} onPress={() => router.push('/family')}>
@@ -495,11 +539,23 @@ export default function HomeScreen() {
             </>
           ) : (
             <>
-              <TouchableOpacity style={styles.actionItem} onPress={() => router.push('/documents')}>
-                <Text style={styles.actionCheck}>✓</Text>
-                <Text style={styles.actionText}><Text style={styles.actionBold}>Plan:</Text> Review emergency docs</Text>
-                <Ionicons name="chevron-forward" size={16} color="#666" style={{ marginLeft: 'auto' }} />
-              </TouchableOpacity>
+              {hazards.length > 0 ? (
+                <TouchableOpacity style={styles.actionItem} onPress={() => {
+                  const nearest = hazards.reduce((prev, curr) => getDist(curr) < getDist(prev) ? curr : prev);
+                  setSelectedHazard(nearest);
+                  setHazardModalVisible(true);
+                }}>
+                  <Text style={styles.actionCheck}>⚠️</Text>
+                  <Text style={styles.actionText}><Text style={styles.actionBold}>Monitor:</Text> {hazards.length} hazard{hazards.length !== 1 ? 's' : ''} detected (far away)</Text>
+                  <Ionicons name="chevron-forward" size={16} color="#666" style={{ marginLeft: 'auto' }} />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity style={styles.actionItem} onPress={() => router.push('/documents')}>
+                  <Text style={styles.actionCheck}>✓</Text>
+                  <Text style={styles.actionText}><Text style={styles.actionBold}>Plan:</Text> Review emergency docs</Text>
+                  <Ionicons name="chevron-forward" size={16} color="#666" style={{ marginLeft: 'auto' }} />
+                </TouchableOpacity>
+              )}
               <TouchableOpacity style={styles.actionItem} onPress={() => router.push('/kit')}>
                 <Text style={styles.actionCheckGray}>○</Text>
                 <Text style={styles.actionText}><Text style={styles.actionBold}>Kit:</Text> Audit supplies (Preparedness: {stats.preparedness_score}/10)</Text>
@@ -512,11 +568,11 @@ export default function HomeScreen() {
         {/* Stats - Clickable */}
         <View style={styles.statsGrid}>
           <TouchableOpacity
-            style={[styles.statCard, { backgroundColor: 'rgba(59, 130, 246, 0.5)' }]}
+            style={[styles.statCard, { backgroundColor: nearbyHazards.length > 0 ? 'rgba(239, 68, 68, 0.5)' : 'rgba(59, 130, 246, 0.5)' }]}
             onPress={() => router.push('/(tabs)/alerts')}
           >
-            <Text style={styles.statValue}>{hazardCount}</Text>
-            <Text style={[styles.statLabel, { color: '#93c5fd' }]}>Hazards</Text>
+            <Text style={styles.statValue}>{nearbyHazards.length}</Text>
+            <Text style={[styles.statLabel, { color: nearbyHazards.length > 0 ? '#fca5a5' : '#93c5fd' }]}>Nearby</Text>
           </TouchableOpacity>
 
           <TouchableOpacity

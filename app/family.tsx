@@ -11,6 +11,8 @@ import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Keyboard,
+    KeyboardAvoidingView,
     Modal,
     Platform,
     RefreshControl,
@@ -19,6 +21,7 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
+    TouchableWithoutFeedback,
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -392,65 +395,76 @@ export default function FamilyScreen() {
 
             {/* Join Family Input (if no family) */}
             {showJoinUI ? (
-                <View style={{ padding: 16, alignItems: 'center', justifyContent: 'center', flex: 1 }}>
-                    <Ionicons name="people-outline" size={64} color="#6b7280" />
-                    <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600', marginTop: 16 }}>Join a Family Group</Text>
-                    <Text style={{ color: '#9ca3af', textAlign: 'center', marginTop: 8, marginBottom: 24 }}>
-                        Enter a unique family code to join your loved ones.
-                        Share this code with them to connect.
-                    </Text>
+                <KeyboardAvoidingView
+                    style={{ flex: 1 }}
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                >
+                    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                        <ScrollView
+                            contentContainerStyle={{ padding: 16, alignItems: 'center', justifyContent: 'center', flexGrow: 1 }}
+                            keyboardShouldPersistTaps="handled"
+                            bounces={false}
+                        >
+                            <Ionicons name="people-outline" size={64} color="#6b7280" />
+                            <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600', marginTop: 16 }}>Join a Family Group</Text>
+                            <Text style={{ color: '#9ca3af', textAlign: 'center', marginTop: 8, marginBottom: 24 }}>
+                                Enter a unique family code to join your loved ones.
+                                Share this code with them to connect.
+                            </Text>
 
-                    <TextInput
-                        style={{
-                            backgroundColor: 'rgba(255,255,255,0.1)',
-                            width: '100%',
-                            padding: 16,
-                            borderRadius: 12,
-                            color: '#fff',
-                            fontSize: 16,
-                            textAlign: 'center',
-                            marginBottom: 16,
-                            borderWidth: 1,
-                            borderColor: 'rgba(255,255,255,0.2)'
-                        }}
-                        placeholder="Enter Family Code (e.g. SMITH_FAMILY)"
-                        placeholderTextColor="#6b7280"
-                        value={joinCode}
-                        onChangeText={setJoinCode}
-                        autoCapitalize="characters"
-                    />
+                            <TextInput
+                                style={{
+                                    backgroundColor: 'rgba(255,255,255,0.1)',
+                                    width: '100%',
+                                    padding: 16,
+                                    borderRadius: 12,
+                                    color: '#fff',
+                                    fontSize: 16,
+                                    textAlign: 'center',
+                                    marginBottom: 16,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(255,255,255,0.2)'
+                                }}
+                                placeholder="Enter Family Code (e.g. SMITH_FAMILY)"
+                                placeholderTextColor="#6b7280"
+                                value={joinCode}
+                                onChangeText={setJoinCode}
+                                autoCapitalize="characters"
+                            />
 
-                    <TouchableOpacity
-                        style={{
-                            backgroundColor: '#3b82f6',
-                            paddingVertical: 16,
-                            paddingHorizontal: 32,
-                            borderRadius: 12,
-                            width: '100%',
-                            alignItems: 'center',
-                            marginBottom: 16
-                        }}
-                        onPress={handleJoinFamily}
-                    >
-                        <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>Join Existing Family</Text>
-                    </TouchableOpacity>
+                            <TouchableOpacity
+                                style={{
+                                    backgroundColor: '#3b82f6',
+                                    paddingVertical: 16,
+                                    paddingHorizontal: 32,
+                                    borderRadius: 12,
+                                    width: '100%',
+                                    alignItems: 'center',
+                                    marginBottom: 16
+                                }}
+                                onPress={handleJoinFamily}
+                            >
+                                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>Join Existing Family</Text>
+                            </TouchableOpacity>
 
-                    <TouchableOpacity
-                        style={{
-                            backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                            paddingVertical: 16,
-                            paddingHorizontal: 32,
-                            borderRadius: 12,
-                            width: '100%',
-                            alignItems: 'center',
-                            borderWidth: 1,
-                            borderColor: '#3b82f6'
-                        }}
-                        onPress={handleCreateFamily}
-                    >
-                        <Text style={{ color: '#3b82f6', fontSize: 16, fontWeight: '600' }}>Create New Family</Text>
-                    </TouchableOpacity>
-                </View>
+                            <TouchableOpacity
+                                style={{
+                                    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                                    paddingVertical: 16,
+                                    paddingHorizontal: 32,
+                                    borderRadius: 12,
+                                    width: '100%',
+                                    alignItems: 'center',
+                                    borderWidth: 1,
+                                    borderColor: '#3b82f6'
+                                }}
+                                onPress={handleCreateFamily}
+                            >
+                                <Text style={{ color: '#3b82f6', fontSize: 16, fontWeight: '600' }}>Create New Family</Text>
+                            </TouchableOpacity>
+                        </ScrollView>
+                    </TouchableWithoutFeedback>
+                </KeyboardAvoidingView>
             ) : (
                 <>
                     {/* Quick Status Bar */}
@@ -691,44 +705,58 @@ export default function FamilyScreen() {
                 visible={showSafetyModal}
                 onRequestClose={() => setShowSafetyModal(false)}
             >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Update Safety Status</Text>
-                        <Text style={styles.modalSub}>Select a message to notify family:</Text>
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                    <KeyboardAvoidingView
+                        style={styles.modalOverlay}
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    >
+                        <View style={styles.modalContent}>
+                            <Text style={styles.modalTitle}>Update Safety Status</Text>
+                            <Text style={styles.modalSub}>Select a message to notify family:</Text>
 
-                        <View style={{ gap: 8, marginBottom: 16 }}>
-                            {PRESET_MESSAGES.map(msg => (
-                                <TouchableOpacity
-                                    key={msg}
-                                    style={[
-                                        styles.presetBtn,
-                                        safetyMessage === msg && styles.presetBtnActive
-                                    ]}
-                                    onPress={() => setSafetyMessage(msg)}
-                                >
-                                    <Text style={[styles.presetBtnText, safetyMessage === msg && { color: '#fff' }]}>{msg}</Text>
-                                </TouchableOpacity>
-                            ))}
+                            <ScrollView
+                                showsVerticalScrollIndicator={false}
+                                keyboardShouldPersistTaps="handled"
+                                bounces={false}
+                            >
+                                <View style={{ gap: 8, marginBottom: 16 }}>
+                                    {PRESET_MESSAGES.map(msg => (
+                                        <TouchableOpacity
+                                            key={msg}
+                                            style={[
+                                                styles.presetBtn,
+                                                safetyMessage === msg && styles.presetBtnActive
+                                            ]}
+                                            onPress={() => setSafetyMessage(msg)}
+                                        >
+                                            <Text style={[styles.presetBtnText, safetyMessage === msg && { color: '#fff' }]}>{msg}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder="Or enter custom message..."
+                                    placeholderTextColor="#666"
+                                    value={safetyMessage}
+                                    onChangeText={setSafetyMessage}
+                                    returnKeyType="done"
+                                    blurOnSubmit={true}
+                                    onSubmitEditing={Keyboard.dismiss}
+                                />
+
+                                <View style={styles.modalButtons}>
+                                    <TouchableOpacity style={styles.modalBtnCancel} onPress={() => { Keyboard.dismiss(); setShowSafetyModal(false); }}>
+                                        <Text style={styles.modalBtnText}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={[styles.modalBtnConfirm, { backgroundColor: '#ef4444' }]} onPress={handleReportIssue}>
+                                        <Text style={[styles.modalBtnText, { fontWeight: 'bold' }]}>SOS / Broadcast</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </ScrollView>
                         </View>
-
-                        <TextInput
-                            style={styles.modalInput}
-                            placeholder="Or enter custom message..."
-                            placeholderTextColor="#666"
-                            value={safetyMessage}
-                            onChangeText={setSafetyMessage}
-                        />
-
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowSafetyModal(false)}>
-                                <Text style={styles.modalBtnText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.modalBtnConfirm, { backgroundColor: '#ef4444' }]} onPress={handleReportIssue}>
-                                <Text style={[styles.modalBtnText, { fontWeight: 'bold' }]}>SOS / Broadcast</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
+                    </KeyboardAvoidingView>
+                </TouchableWithoutFeedback>
             </Modal>
         </SafeAreaView>
     );

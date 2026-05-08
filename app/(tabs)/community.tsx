@@ -18,6 +18,7 @@ import {
     ActivityIndicator,
     Alert,
     Keyboard,
+    KeyboardAvoidingView,
     Modal,
     Platform,
     RefreshControl,
@@ -419,47 +420,56 @@ export default function CommunityScreen() {
                 onRequestClose={() => setShowSafetyModal(false)}
             >
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                    <View style={styles.modalOverlay}>
+                    <KeyboardAvoidingView
+                        style={styles.modalOverlay}
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    >
                         <View style={styles.modalContent}>
                             <Text style={styles.modalTitle}>Update Safety Status</Text>
                             <Text style={styles.modalSub}>Select a message to notify neighbor/family:</Text>
 
-                            <View style={{ gap: 8, marginBottom: 16 }}>
-                                {PRESET_MESSAGES.map(msg => (
-                                    <TouchableOpacity
-                                        key={msg}
-                                        style={[
-                                            styles.presetBtn,
-                                            safetyMessage === msg && styles.presetBtnActive
-                                        ]}
-                                        onPress={() => setSafetyMessage(msg)}
-                                    >
-                                        <Text style={[styles.presetBtnText, safetyMessage === msg && { color: '#fff' }]}>{msg}</Text>
+                            <ScrollView
+                                showsVerticalScrollIndicator={false}
+                                keyboardShouldPersistTaps="handled"
+                                bounces={false}
+                            >
+                                <View style={{ gap: 8, marginBottom: 16 }}>
+                                    {PRESET_MESSAGES.map(msg => (
+                                        <TouchableOpacity
+                                            key={msg}
+                                            style={[
+                                                styles.presetBtn,
+                                                safetyMessage === msg && styles.presetBtnActive
+                                            ]}
+                                            onPress={() => setSafetyMessage(msg)}
+                                        >
+                                            <Text style={[styles.presetBtnText, safetyMessage === msg && { color: '#fff' }]}>{msg}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder="Or enter custom message..."
+                                    placeholderTextColor="#666"
+                                    value={safetyMessage}
+                                    onChangeText={setSafetyMessage}
+                                    returnKeyType="done"
+                                    blurOnSubmit={true}
+                                    onSubmitEditing={Keyboard.dismiss}
+                                />
+
+                                <View style={styles.modalButtons}>
+                                    <TouchableOpacity style={styles.modalBtnCancel} onPress={() => { Keyboard.dismiss(); setShowSafetyModal(false); }}>
+                                        <Text style={styles.modalBtnText}>Cancel</Text>
                                     </TouchableOpacity>
-                                ))}
-                            </View>
-
-                            <TextInput
-                                style={styles.modalInput}
-                                placeholder="Or enter custom message..."
-                                placeholderTextColor="#666"
-                                value={safetyMessage}
-                                onChangeText={setSafetyMessage}
-                                returnKeyType="done"
-                                blurOnSubmit={true}
-                                onSubmitEditing={Keyboard.dismiss}
-                            />
-
-                            <View style={styles.modalButtons}>
-                                <TouchableOpacity style={styles.modalBtnCancel} onPress={() => { Keyboard.dismiss(); setShowSafetyModal(false); }}>
-                                    <Text style={styles.modalBtnText}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={[styles.modalBtnConfirm, { backgroundColor: '#ef4444' }]} onPress={handleReportIssue}>
-                                    <Text style={[styles.modalBtnText, { fontWeight: 'bold' }]}>SOS / Broadcast</Text>
-                                </TouchableOpacity>
-                            </View>
+                                    <TouchableOpacity style={[styles.modalBtnConfirm, { backgroundColor: '#ef4444' }]} onPress={handleReportIssue}>
+                                        <Text style={[styles.modalBtnText, { fontWeight: 'bold' }]}>SOS / Broadcast</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </ScrollView>
                         </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </TouchableWithoutFeedback>
             </Modal>
 
@@ -471,7 +481,10 @@ export default function CommunityScreen() {
                 onRequestClose={() => setShowAddNeighbor(false)}
             >
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                    <View style={styles.modalOverlay}>
+                    <KeyboardAvoidingView
+                        style={styles.modalOverlay}
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    >
                         <View style={styles.modalContent}>
                             <Text style={styles.modalTitle}>Add Neighbor</Text>
                             <Text style={styles.modalSub}>Enter their unique tag to add them.</Text>
@@ -497,7 +510,7 @@ export default function CommunityScreen() {
                                 </TouchableOpacity>
                             </View>
                         </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </TouchableWithoutFeedback>
             </Modal>
 
@@ -509,60 +522,69 @@ export default function CommunityScreen() {
                 onRequestClose={() => setShowAddResource(false)}
             >
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                    <View style={styles.modalOverlay}>
+                    <KeyboardAvoidingView
+                        style={styles.modalOverlay}
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    >
                         <View style={styles.modalContent}>
                             <Text style={styles.modalTitle}>Share Resource</Text>
 
-                            <View style={styles.typeSelector}>
-                                <TouchableOpacity
-                                    style={[styles.typeBtn, newResType === 'offering' && styles.typeBtnOffering]}
-                                    onPress={() => setNewResType('offering')}
-                                >
-                                    <Text style={[styles.typeBtnText, newResType === 'offering' && { color: '#fff' }]}>Offering</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.typeBtn, newResType === 'requesting' && styles.typeBtnRequesting]}
-                                    onPress={() => setNewResType('requesting')}
-                                >
-                                    <Text style={[styles.typeBtnText, newResType === 'requesting' && { color: '#fff' }]}>Requesting</Text>
-                                </TouchableOpacity>
-                            </View>
+                            <ScrollView
+                                showsVerticalScrollIndicator={false}
+                                keyboardShouldPersistTaps="handled"
+                                bounces={false}
+                            >
+                                <View style={styles.typeSelector}>
+                                    <TouchableOpacity
+                                        style={[styles.typeBtn, newResType === 'offering' && styles.typeBtnOffering]}
+                                        onPress={() => setNewResType('offering')}
+                                    >
+                                        <Text style={[styles.typeBtnText, newResType === 'offering' && { color: '#fff' }]}>Offering</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.typeBtn, newResType === 'requesting' && styles.typeBtnRequesting]}
+                                        onPress={() => setNewResType('requesting')}
+                                    >
+                                        <Text style={[styles.typeBtnText, newResType === 'requesting' && { color: '#fff' }]}>Requesting</Text>
+                                    </TouchableOpacity>
+                                </View>
 
-                            <TextInput
-                                style={styles.modalInput}
-                                placeholder="Title (e.g. Water Bottles)"
-                                placeholderTextColor="#666"
-                                value={newResTitle}
-                                onChangeText={setNewResTitle}
-                                returnKeyType="next"
-                                blurOnSubmit={false}
-                            />
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder="Title (e.g. Water Bottles)"
+                                    placeholderTextColor="#666"
+                                    value={newResTitle}
+                                    onChangeText={setNewResTitle}
+                                    returnKeyType="next"
+                                    blurOnSubmit={false}
+                                />
 
-                            <TextInput
-                                style={[styles.modalInput, { height: 80, textAlignVertical: 'top' }]}
-                                placeholder="Description..."
-                                placeholderTextColor="#666"
-                                multiline
-                                value={newResDesc}
-                                onChangeText={setNewResDesc}
-                                returnKeyType="done"
-                                blurOnSubmit={true}
-                                onSubmitEditing={Keyboard.dismiss}
-                            />
+                                <TextInput
+                                    style={[styles.modalInput, { height: 80, textAlignVertical: 'top' }]}
+                                    placeholder="Description..."
+                                    placeholderTextColor="#666"
+                                    multiline
+                                    value={newResDesc}
+                                    onChangeText={setNewResDesc}
+                                    returnKeyType="done"
+                                    blurOnSubmit={true}
+                                    onSubmitEditing={Keyboard.dismiss}
+                                />
 
-                            <View style={styles.modalButtons}>
-                                <TouchableOpacity style={styles.modalBtnCancel} onPress={() => { Keyboard.dismiss(); setShowAddResource(false); }}>
-                                    <Text style={styles.modalBtnText}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.modalBtnConfirm, { backgroundColor: newResType === 'offering' ? '#22c55e' : '#f97316' }]}
-                                    onPress={handleCreateResource}
-                                >
-                                    <Text style={[styles.modalBtnText, { fontWeight: 'bold' }]}>Post</Text>
-                                </TouchableOpacity>
-                            </View>
+                                <View style={styles.modalButtons}>
+                                    <TouchableOpacity style={styles.modalBtnCancel} onPress={() => { Keyboard.dismiss(); setShowAddResource(false); }}>
+                                        <Text style={styles.modalBtnText}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.modalBtnConfirm, { backgroundColor: newResType === 'offering' ? '#22c55e' : '#f97316' }]}
+                                        onPress={handleCreateResource}
+                                    >
+                                        <Text style={[styles.modalBtnText, { fontWeight: 'bold' }]}>Post</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </ScrollView>
                         </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </TouchableWithoutFeedback>
             </Modal>
         </SafeAreaView>

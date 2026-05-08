@@ -16,6 +16,7 @@ import {
     ActivityIndicator,
     Alert,
     Keyboard,
+    KeyboardAvoidingView,
     Modal,
     Platform,
     RefreshControl,
@@ -391,7 +392,10 @@ export default function NeighborsScreen() {
                 onRequestClose={() => setShowAddNeighbor(false)}
             >
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                    <View style={styles.modalOverlay}>
+                    <KeyboardAvoidingView
+                        style={styles.modalOverlay}
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    >
                         <View style={styles.modalContent}>
                             <Text style={styles.modalTitle}>Add Neighbor</Text>
                             <Text style={styles.modalSub}>Enter their unique tag to add them.</Text>
@@ -427,7 +431,7 @@ export default function NeighborsScreen() {
                                 </TouchableOpacity>
                             </View>
                         </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </TouchableWithoutFeedback>
             </Modal>
 
@@ -439,53 +443,62 @@ export default function NeighborsScreen() {
                 onRequestClose={() => setShowStatusModal(false)}
             >
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                    <View style={styles.modalOverlay}>
+                    <KeyboardAvoidingView
+                        style={styles.modalOverlay}
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    >
                         <View style={styles.modalContent}>
                             <Text style={styles.modalTitle}>Update Safety Status</Text>
                             <Text style={styles.modalSub}>Select a message to notify neighbors:</Text>
 
-                            <View style={{ gap: 8, marginBottom: 16 }}>
-                                {PRESET_MESSAGES.map(msg => (
+                            <ScrollView
+                                showsVerticalScrollIndicator={false}
+                                keyboardShouldPersistTaps="handled"
+                                bounces={false}
+                            >
+                                <View style={{ gap: 8, marginBottom: 16 }}>
+                                    {PRESET_MESSAGES.map(msg => (
+                                        <TouchableOpacity
+                                            key={msg}
+                                            style={[
+                                                styles.presetBtn,
+                                                statusMessage === msg && styles.presetBtnActive
+                                            ]}
+                                            onPress={() => setStatusMessage(msg)}
+                                        >
+                                            <Text style={[styles.presetBtnText, statusMessage === msg && { color: '#fff' }]}>{msg}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder="Or enter custom message..."
+                                    placeholderTextColor="#666"
+                                    value={statusMessage}
+                                    onChangeText={setStatusMessage}
+                                    returnKeyType="done"
+                                    blurOnSubmit={true}
+                                    onSubmitEditing={Keyboard.dismiss}
+                                />
+
+                                <View style={styles.modalButtons}>
                                     <TouchableOpacity
-                                        key={msg}
-                                        style={[
-                                            styles.presetBtn,
-                                            statusMessage === msg && styles.presetBtnActive
-                                        ]}
-                                        onPress={() => setStatusMessage(msg)}
+                                        style={styles.modalBtnCancel}
+                                        onPress={() => { Keyboard.dismiss(); setShowStatusModal(false); }}
                                     >
-                                        <Text style={[styles.presetBtnText, statusMessage === msg && { color: '#fff' }]}>{msg}</Text>
+                                        <Text style={styles.modalBtnText}>Cancel</Text>
                                     </TouchableOpacity>
-                                ))}
-                            </View>
-
-                            <TextInput
-                                style={styles.modalInput}
-                                placeholder="Or enter custom message..."
-                                placeholderTextColor="#666"
-                                value={statusMessage}
-                                onChangeText={setStatusMessage}
-                                returnKeyType="done"
-                                blurOnSubmit={true}
-                                onSubmitEditing={Keyboard.dismiss}
-                            />
-
-                            <View style={styles.modalButtons}>
-                                <TouchableOpacity
-                                    style={styles.modalBtnCancel}
-                                    onPress={() => { Keyboard.dismiss(); setShowStatusModal(false); }}
-                                >
-                                    <Text style={styles.modalBtnText}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.modalBtnConfirm, { backgroundColor: '#ef4444' }]}
-                                    onPress={handleReportIssue}
-                                >
-                                    <Text style={[styles.modalBtnText, { fontWeight: 'bold' }]}>SOS / Broadcast</Text>
-                                </TouchableOpacity>
-                            </View>
+                                    <TouchableOpacity
+                                        style={[styles.modalBtnConfirm, { backgroundColor: '#ef4444' }]}
+                                        onPress={handleReportIssue}
+                                    >
+                                        <Text style={[styles.modalBtnText, { fontWeight: 'bold' }]}>SOS / Broadcast</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </ScrollView>
                         </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </TouchableWithoutFeedback>
             </Modal>
         </SafeAreaView>

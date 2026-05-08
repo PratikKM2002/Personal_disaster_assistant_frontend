@@ -14,8 +14,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    KeyboardAvoidingView,
     Linking,
     Modal,
+    Platform,
     ScrollView,
     StyleSheet,
     Switch,
@@ -336,7 +338,10 @@ export default function ProfileScreen() {
 
             {/* Edit Profile Modal */}
             <Modal visible={editModalVisible} animationType="slide" transparent>
-                <View style={styles.modalOverlay}>
+                <KeyboardAvoidingView
+                    style={styles.modalOverlay}
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                >
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Edit Profile</Text>
@@ -345,39 +350,48 @@ export default function ProfileScreen() {
                             </TouchableOpacity>
                         </View>
 
-                        <Text style={styles.inputLabel}>Phone Number</Text>
-                        <TextInput
-                            style={styles.textInput}
-                            value={editPhone}
-                            onChangeText={setEditPhone}
-                            placeholder="Enter phone number"
-                            placeholderTextColor="#6b7280"
-                            keyboardType="phone-pad"
-                        />
+                        <ScrollView
+                            showsVerticalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
+                            bounces={false}
+                        >
+                            <Text style={styles.inputLabel}>Phone Number</Text>
+                            <TextInput
+                                style={styles.textInput}
+                                value={editPhone}
+                                onChangeText={setEditPhone}
+                                placeholder="Enter phone number"
+                                placeholderTextColor="#6b7280"
+                                keyboardType="phone-pad"
+                            />
 
-                        <Text style={styles.inputLabel}>Blood Type</Text>
-                        <View style={styles.bloodTypeGrid}>
-                            {BLOOD_TYPES.map(bt => (
-                                <TouchableOpacity
-                                    key={bt}
-                                    style={[styles.bloodTypeBtn, editBloodType === bt && styles.bloodTypeBtnActive]}
-                                    onPress={() => setEditBloodType(bt)}
-                                >
-                                    <Text style={[styles.bloodTypeBtnText, editBloodType === bt && styles.bloodTypeBtnTextActive]}>{bt}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
+                            <Text style={styles.inputLabel}>Blood Type</Text>
+                            <View style={styles.bloodTypeGrid}>
+                                {BLOOD_TYPES.map(bt => (
+                                    <TouchableOpacity
+                                        key={bt}
+                                        style={[styles.bloodTypeBtn, editBloodType === bt && styles.bloodTypeBtnActive]}
+                                        onPress={() => setEditBloodType(bt)}
+                                    >
+                                        <Text style={[styles.bloodTypeBtnText, editBloodType === bt && styles.bloodTypeBtnTextActive]}>{bt}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
 
-                        <TouchableOpacity style={styles.saveButton} onPress={handleSaveProfile} disabled={saving}>
-                            {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveButtonText}>Save Changes</Text>}
-                        </TouchableOpacity>
+                            <TouchableOpacity style={styles.saveButton} onPress={handleSaveProfile} disabled={saving}>
+                                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveButtonText}>Save Changes</Text>}
+                            </TouchableOpacity>
+                        </ScrollView>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
 
             {/* Add Contact Modal */}
             <Modal visible={contactModalVisible} animationType="slide" transparent>
-                <View style={styles.modalOverlay}>
+                <KeyboardAvoidingView
+                    style={styles.modalOverlay}
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                >
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Add Emergency Contact</Text>
@@ -386,49 +400,55 @@ export default function ProfileScreen() {
                             </TouchableOpacity>
                         </View>
 
-                        <Text style={styles.inputLabel}>Name *</Text>
-                        <TextInput
-                            style={styles.textInput}
-                            value={newContactName}
-                            onChangeText={setNewContactName}
-                            placeholder="Contact name"
-                            placeholderTextColor="#6b7280"
-                        />
-
-                        <Text style={styles.inputLabel}>Phone *</Text>
-                        <TextInput
-                            style={styles.textInput}
-                            value={newContactPhone}
-                            onChangeText={setNewContactPhone}
-                            placeholder="Phone number"
-                            placeholderTextColor="#6b7280"
-                            keyboardType="phone-pad"
-                        />
-
-                        <Text style={styles.inputLabel}>Relationship</Text>
-                        <TextInput
-                            style={styles.textInput}
-                            value={newContactRelationship}
-                            onChangeText={setNewContactRelationship}
-                            placeholder="e.g. Spouse, Parent, Friend"
-                            placeholderTextColor="#6b7280"
-                        />
-
-                        <View style={styles.switchRow}>
-                            <Text style={styles.switchLabel}>Primary Contact</Text>
-                            <Switch
-                                value={newContactPrimary}
-                                onValueChange={setNewContactPrimary}
-                                trackColor={{ false: '#3e3e3e', true: '#3b82f6' }}
-                                thumbColor="#fff"
+                        <ScrollView
+                            showsVerticalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
+                            bounces={false}
+                        >
+                            <Text style={styles.inputLabel}>Name *</Text>
+                            <TextInput
+                                style={styles.textInput}
+                                value={newContactName}
+                                onChangeText={setNewContactName}
+                                placeholder="Contact name"
+                                placeholderTextColor="#6b7280"
                             />
-                        </View>
 
-                        <TouchableOpacity style={styles.saveButton} onPress={handleAddContact} disabled={saving}>
-                            {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveButtonText}>Add Contact</Text>}
-                        </TouchableOpacity>
+                            <Text style={styles.inputLabel}>Phone *</Text>
+                            <TextInput
+                                style={styles.textInput}
+                                value={newContactPhone}
+                                onChangeText={setNewContactPhone}
+                                placeholder="Phone number"
+                                placeholderTextColor="#6b7280"
+                                keyboardType="phone-pad"
+                            />
+
+                            <Text style={styles.inputLabel}>Relationship</Text>
+                            <TextInput
+                                style={styles.textInput}
+                                value={newContactRelationship}
+                                onChangeText={setNewContactRelationship}
+                                placeholder="e.g. Spouse, Parent, Friend"
+                                placeholderTextColor="#6b7280"
+                            />
+
+                            <View style={styles.switchRow}>
+                                <Text style={styles.switchLabel}>Primary Contact</Text>
+                                <Switch
+                                    value={newContactPrimary}
+                                    onValueChange={setNewContactPrimary}
+                                    trackColor={{ false: '#3e3e3e', true: '#3b82f6' }}
+                                    thumbColor="#fff"
+                                />
+                            </View>
+
+                            <TouchableOpacity style={styles.saveButton} onPress={handleAddContact} disabled={saving}>
+                                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveButtonText}>Add Contact</Text>}
+                            </TouchableOpacity>
+                        </ScrollView>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
 
             {/* Privacy Settings Modal */}
