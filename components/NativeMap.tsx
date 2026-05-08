@@ -4,7 +4,7 @@ import React from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView, { Callout, Circle, Heatmap, Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
-type ResourceMarker = {
+export type ResourceMarker = {
     id: string;
     name: string;
     type: string;

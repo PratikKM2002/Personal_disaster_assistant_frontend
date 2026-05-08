@@ -4,6 +4,8 @@ async function run() {
   // Order matters (FKs + constraints)
   const migrations = [
     './db-migrate-community',
+    './db-migrate-clerk-auth',
+    './db-migrate-user-roles',
     './db-migrate-family',
     './db-migrate-profile',
 

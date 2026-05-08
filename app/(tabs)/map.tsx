@@ -1,4 +1,4 @@
-import NativeMap from '@/components/NativeMap';
+import NativeMap, { ResourceMarker } from '@/components/NativeMap';
 import SafetyStatusBar from '@/components/SafetyStatusBar';
 import { AppColors, BorderRadius } from '@/constants/Colors';
 import { MOCK_USER_LOCATION } from '@/constants/Data';
@@ -298,7 +298,7 @@ export default function MapScreen() {
         }
     };
 
-    const handleNavigate = (resource: Resource) => {
+    const handleNavigate = (resource: ResourceMarker) => {
         router.push({
             pathname: '/navigation',
             params: {

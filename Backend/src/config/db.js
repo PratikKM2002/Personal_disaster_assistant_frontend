@@ -15,7 +15,7 @@ const pool = process.env.DATABASE_URL
     port: Number(process.env.PGPORT || 5432),
     database: process.env.PGDATABASE || 'pda',
     user: process.env.PGUSER || 'postgres',
-    password: process.env.PGPASSWORD || 'postgres',
+    password: process.env.PGPASSWORD,
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,

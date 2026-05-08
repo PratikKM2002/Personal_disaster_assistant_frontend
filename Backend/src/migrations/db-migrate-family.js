@@ -13,7 +13,8 @@ async function migrate() {
     await query(`
     ALTER TABLE user_account 
     ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS last_lon DOUBLE PRECISION DEFAULT NULL;
+    ADD COLUMN IF NOT EXISTS last_lon DOUBLE PRECISION DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS last_address TEXT DEFAULT NULL;
   `);
 
     // Add status column (safe, danger, etc.) with default 'safe'

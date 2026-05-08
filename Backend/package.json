@@ -21,16 +21,20 @@
     "test": "jest --verbose"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1045.0",
+    "@aws-sdk/lib-storage": "^3.1045.0",
     "bcryptjs": "^3.0.3",
     "dotenv": "^16.6.1",
+    "express": "^5.2.1",
     "jsonwebtoken": "^9.0.2",
+    "multer": "^2.1.1",
     "node-cron": "^4.2.1",
     "node-fetch": "^2.7.0",
     "pg": "^8.16.3"
   },
   "devDependencies": {
     "jest": "^29.7.0",
-    "nodemon": "^3.0.3",
+    "nodemon": "^3.1.14",
     "supertest": "^7.2.2"
   }
 }
