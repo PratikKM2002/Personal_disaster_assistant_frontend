@@ -1,6 +1,5 @@
 const http = require('http');
 const router = require('./router');
-const { rateLimit } = require('./middleware/rate-limiter');
 
 function createServer() {
   const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
@@ -35,9 +34,6 @@ function createServer() {
       res.end();
       return;
     }
-
-    // Rate limiting — 100 requests per minute per IP
-    if (rateLimit(req, res)) return;
 
     try {
       await router(req, res);

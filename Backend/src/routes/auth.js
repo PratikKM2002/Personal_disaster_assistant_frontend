@@ -5,7 +5,6 @@ const { send } = require('../utils/send');
 const { match } = require('../utils/url');
 const { query } = require('../config/db');
 const { signJwt } = require('../middleware/jwt');
-const { rateLimit } = require('../middleware/rate-limiter');
 
 async function authRoutes(req, res) {
     // NOTE: These legacy auth routes are deprecated in favor of Clerk-based authentication.
@@ -15,8 +14,6 @@ async function authRoutes(req, res) {
     {
         const m = match(req.method, req.url, { method: 'POST', path: '/auth/register' });
         if (m) {
-            // Stricter rate limit for registration: 5 per minute
-            if (rateLimit(req, res, { max: 5, windowMs: 60000 })) return true;
             console.warn('[Auth] DEPRECATED: /auth/register — use Clerk sign-up instead');
             const body = await parseJson(req);
             const { name, email, password, phone } = body || {};
@@ -46,8 +43,6 @@ async function authRoutes(req, res) {
     {
         const m = match(req.method, req.url, { method: 'POST', path: '/auth/login' });
         if (m) {
-            // Stricter rate limit for login: 10 per minute to prevent brute force
-            if (rateLimit(req, res, { max: 10, windowMs: 60000 })) return true;
             console.warn('[Auth] DEPRECATED: /auth/login — use Clerk sign-in instead');
             const body = await parseJson(req);
             const { email, password } = body || {};
@@ -80,8 +75,6 @@ async function authRoutes(req, res) {
     {
         const m = match(req.method, req.url, { method: 'POST', path: '/auth/google-sync' });
         if (m) {
-            // Rate limit: 10 per minute
-            if (rateLimit(req, res, { max: 10, windowMs: 60000 })) return true;
             console.warn('[Auth] DEPRECATED: /auth/google-sync — Clerk handles Google auth');
 
             const body = await parseJson(req);
