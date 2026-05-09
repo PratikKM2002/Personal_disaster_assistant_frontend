@@ -23,6 +23,7 @@ async function run() {
 
     './db-migrate-indexes',
     './db-migrate-alerts',
+    './db-migrate-weather-cache',
   ];
 
   for (const m of migrations) {

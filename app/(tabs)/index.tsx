@@ -61,6 +61,7 @@ export default function HomeScreen() {
   const [nearbyHazards, setNearbyHazards] = useState<any[]>([]); // within 10km
   const [shelterCount, setShelterCount] = useState(0);
   const [weather, setWeather] = useState<WeatherData | undefined>(undefined);
+  const [weatherLoaded, setWeatherLoaded] = useState(false);
   const [weatherModalVisible, setWeatherModalVisible] = useState(false);
   const [hazardModalVisible, setHazardModalVisible] = useState(false);
   const [selectedHazard, setSelectedHazard] = useState<any>(null);
@@ -190,7 +191,9 @@ export default function HomeScreen() {
         setFloodRisk(floodData);
 
         if (overviewData.stats) setStats(overviewData.stats);
-        if (overviewData.weather) setWeather(overviewData.weather);
+        // Set weather even if null — so we know the fetch completed
+        setWeather(overviewData.weather || undefined);
+        setWeatherLoaded(true);
       };
 
       try {
@@ -373,7 +376,8 @@ export default function HomeScreen() {
                   setShelterCount(overviewData.shelters?.items?.length || 0);
                   setFloodRisk(floodData);
                   if (overviewData.stats) setStats(overviewData.stats);
-                  if (overviewData.weather) setWeather(overviewData.weather);
+                  setWeather(overviewData.weather || undefined);
+                  setWeatherLoaded(true);
                 } catch {
                   setFetchFailed(true);
                 }
@@ -391,15 +395,30 @@ export default function HomeScreen() {
 
         <TouchableOpacity
           style={styles.weatherWidget}
-          onPress={() => weather && setWeatherModalVisible(true)}
-          activeOpacity={weather ? 0.7 : 1}
+          onPress={() => {
+            if (weather) {
+              setWeatherModalVisible(true);
+            } else if (weatherLoaded) {
+              // Weather failed — retry
+              setWeatherLoaded(false);
+              (async () => {
+                try {
+                  const overviewData = await getOverview(currentUserLocation.lat, currentUserLocation.lng, 50);
+                  setWeather(overviewData.weather || undefined);
+                } catch {} finally {
+                  setWeatherLoaded(true);
+                }
+              })();
+            }
+          }}
+          activeOpacity={0.7}
         >
           <View style={styles.weatherMain}>
             <View style={styles.weatherIconContainer}>
               <Ionicons
-                name={weather ? getWeatherIcon(weather.condition_code) : 'cloud-outline'}
+                name={weather ? getWeatherIcon(weather.condition_code) : (weatherLoaded ? 'cloud-offline-outline' : 'cloud-outline')}
                 size={32}
-                color="#fff"
+                color={weather ? '#fff' : (weatherLoaded ? '#9ca3af' : '#fff')}
               />
             </View>
             <View style={styles.weatherInfo}>
@@ -407,15 +426,21 @@ export default function HomeScreen() {
                 {weather ? `${Math.round(weather.temp)}°${weather.params.temp_unit}` : '--'}
               </Text>
               <Text style={styles.weatherCondition}>
-                {weather ? getWeatherLabel(weather.condition_code) : 'Loading Weather...'}
+                {weather
+                  ? getWeatherLabel(weather.condition_code)
+                  : (weatherLoaded ? 'Weather unavailable — tap to retry' : 'Loading Weather...')}
               </Text>
-              {weather && (
+              {weather && weather.aqi > 0 && (
                 <Text style={[styles.aqiWarning, { color: getAqiColor(weather.aqi) }]}>
                   AQI {weather.aqi} - {getAqiLabel(weather.aqi)}
                 </Text>
               )}
             </View>
-            {weather && <Ionicons name="chevron-forward" size={20} color="#6b7280" />}
+            {weather ? (
+              <Ionicons name="chevron-forward" size={20} color="#6b7280" />
+            ) : weatherLoaded ? (
+              <Ionicons name="refresh" size={20} color="#9ca3af" />
+            ) : null}
           </View>
         </TouchableOpacity>
 

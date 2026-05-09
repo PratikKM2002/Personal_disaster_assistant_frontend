@@ -43,7 +43,6 @@ export default function NavigationScreen() {
     const mapRef = useRef<any>(null);
     const pulseAnim = useRef(new Animated.Value(0.6)).current;
     const panelHeight = useRef(new Animated.Value(height * 0.12)).current;
-    const lastRerouteTime = useRef(Date.now());
 
     // Pulse animation for loading
     useEffect(() => {
@@ -110,24 +109,44 @@ export default function NavigationScreen() {
         };
     }, []);
 
-    // Fetch hazards along route corridor
+    // Reusable hazard fetcher
+    const refreshHazards = useCallback(async (lat: number, lon: number) => {
+        try {
+            const h = await getHazardsForNavigation(lat, lon, 30);
+            setNavHazards(h.map((hz: any) => ({
+                id: `nav-h-${hz.id}`,
+                type: (hz.type || 'hazard').toLowerCase(),
+                title: hz.attributes?.title || hz.type || 'Hazard',
+                severity: hz.severity >= 0.7 ? 'critical' : hz.severity >= 0.4 ? 'high' : 'moderate',
+                location: { lat: hz.lat, lng: hz.lon },
+            })));
+        } catch { /* ignore */ }
+    }, []);
+
+    // Fetch hazards on significant position change (~1km)
     useEffect(() => {
         if (!userLoc) return;
-        (async () => {
-            try {
-                const h = await getHazardsForNavigation(userLoc.latitude, userLoc.longitude, 30);
-                setNavHazards(h.map((hz: any) => ({
-                    id: `nav-h-${hz.id}`,
-                    type: (hz.type || 'hazard').toLowerCase(),
-                    title: hz.attributes?.title || hz.type || 'Hazard',
-                    severity: hz.severity >= 0.7 ? 'critical' : hz.severity >= 0.4 ? 'high' : 'moderate',
-                    location: { lat: hz.lat, lng: hz.lon },
-                })));
-            } catch { /* ignore */ }
-        })();
+        refreshHazards(userLoc.latitude, userLoc.longitude);
     }, [userLoc ? `${userLoc.latitude.toFixed(2)},${userLoc.longitude.toFixed(2)}` : '']);
 
-    // Live step progression + off-route rerouting + arrival detection
+    // Periodic hazard + route refresh every 2 minutes (catches new hazards even when stationary)
+    useEffect(() => {
+        if (!userLoc || arrived) return;
+
+        const POLL_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+
+        const interval = setInterval(() => {
+            if (userLoc) {
+                console.log('[Nav] Periodic hazard + route refresh');
+                refreshHazards(userLoc.latitude, userLoc.longitude);
+                fetchRoute(travelMode);
+            }
+        }, POLL_INTERVAL_MS);
+
+        return () => clearInterval(interval);
+    }, [userLoc?.latitude, userLoc?.longitude, arrived, travelMode, refreshHazards, fetchRoute]);
+
+    // Live step progression + arrival detection
     useEffect(() => {
         if (!route || !userLoc) return;
         const steps = route.steps;
@@ -139,7 +158,6 @@ export default function NavigationScreen() {
         if (distToDest < 0.05) { setArrived(true); return; }
 
         // Find current step: the first step whose cumulative distance hasn't been passed
-        // Simple approach: find step closest to user's current position
         if (steps.length > 0) {
             let cumulativeDist = 0;
             const totalRouteKm = route.distance / 1000;
@@ -151,14 +169,6 @@ export default function NavigationScreen() {
                     break;
                 }
             }
-        }
-
-        // Auto-reroute if drifted too far from route or every 2 min
-        const now = Date.now();
-        const timeSinceReroute = now - lastRerouteTime.current;
-        if (timeSinceReroute > 120000) {
-            lastRerouteTime.current = now;
-            fetchRoute(travelMode);
         }
     }, [userLoc, route]);
 
@@ -224,20 +234,26 @@ export default function NavigationScreen() {
                 )}
             </View>
 
-            {/* Floating Top Card (Instruction) */}
+            {/* Floating Top Card — Google Maps style */}
             <View style={styles.floatingTopCard}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backFab}>
                     <Ionicons name="close" size={22} color="#fff" />
                 </TouchableOpacity>
                 <View style={[styles.nextStepInfo, hasWarnings && !isSafe && styles.nextStepInfoWarning]}>
                     <View style={styles.nextStepIcon}>
-                        <Ionicons name={getInstructionIcon(currentStep?.instruction)} size={28} color="#fff" />
+                        <Ionicons name={getInstructionIcon(currentStep?.instruction)} size={26} color="#fff" />
                     </View>
                     <View style={styles.nextStepTextContainer}>
-                        <Text style={styles.nextStepLabel}>{currentStepIdx === 0 ? 'NEXT' : `STEP ${currentStepIdx + 1}`}</Text>
                         <Text style={styles.nextStepInstruction} numberOfLines={2}>
                             {currentStep?.instruction || 'Following route...'}
                         </Text>
+                        {currentStep?.distance != null && currentStep.distance > 0 && (
+                            <Text style={styles.nextStepDist}>
+                                {currentStep.distance >= 1000
+                                    ? `${(currentStep.distance / 1000).toFixed(1)} km`
+                                    : `${Math.round(currentStep.distance)} m`}
+                            </Text>
+                        )}
                     </View>
                 </View>
             </View>
@@ -309,7 +325,7 @@ export default function NavigationScreen() {
                 </View>
             )}
 
-            {/* Bottom Panel */}
+            {/* Bottom Panel — Google Maps style */}
             <Animated.View style={[styles.bottomPanel, { height: panelHeight }]}>
                 {/* Drag Handle */}
                 <TouchableOpacity onPress={togglePanel} style={styles.dragHandleArea} activeOpacity={0.9}>
@@ -319,36 +335,25 @@ export default function NavigationScreen() {
                 {/* Stats Row */}
                 {route && (
                     <View style={styles.statsRow}>
-                        <View style={styles.statBox}>
-                            <Text style={styles.statValue}>{(route.distance / 1000).toFixed(1)}</Text>
-                            <Text style={styles.statUnit}>km</Text>
-                        </View>
-                        <View style={styles.statDivider} />
-                        <View style={styles.statBox}>
-                            <Text style={styles.statValue}>{Math.ceil(route.duration / 60)}</Text>
-                            <Text style={styles.statUnit}>min</Text>
-                        </View>
-                        <View style={styles.statDivider} />
-                        <View style={styles.statBox}>
-                            <Text style={styles.statValue}>
-                                {(() => {
+                        <View style={styles.statsLeft}>
+                            <Text style={styles.statTimeMain}>{Math.ceil(route.duration / 60)} min</Text>
+                            <Text style={styles.statDetails}>
+                                {(route.distance / 1000).toFixed(1)} km  •  {(() => {
                                     const arrival = new Date(Date.now() + route.duration * 1000);
-                                    return arrival.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                                    return arrival.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                                 })()}
                             </Text>
-                            <Text style={styles.statUnit}>ETA</Text>
                         </View>
-                        <View style={styles.statDivider} />
-                        <View style={[styles.safetyBadge, isSafe ? styles.safetyBadgeSafe : styles.safetyBadgeDanger]}>
-                            <Ionicons
-                                name={isSafe ? "shield-checkmark" : "warning"}
-                                size={14}
-                                color={isSafe ? '#22c55e' : '#f59e0b'}
-                            />
-                            <Text style={[styles.safetyBadgeText, isSafe ? styles.safetyTextSafe : styles.safetyTextDanger]}>
-                                {isSafe ? 'Safe' : 'Alert'}
-                            </Text>
-                        </View>
+                        {!isSafe ? (
+                            <View style={[styles.safetyBadge, styles.safetyBadgeDanger]}>
+                                <Ionicons name="warning" size={14} color="#f59e0b" />
+                                <Text style={[styles.safetyBadgeText, styles.safetyTextDanger]}>Alert</Text>
+                            </View>
+                        ) : (
+                            <TouchableOpacity style={styles.exitButton} onPress={() => router.back()}>
+                                <Text style={styles.exitButtonText}>Exit</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 )}
 
@@ -493,35 +498,43 @@ const styles = StyleSheet.create({
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#22c55e',
-        borderRadius: BorderRadius.xl,
-        padding: 14,
-        shadowColor: '#22c55e',
-        shadowOffset: { width: 0, height: 6 },
+        backgroundColor: '#1a73e8',
+        borderRadius: 16,
+        paddingVertical: 16,
+        paddingHorizontal: 18,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.35,
-        shadowRadius: 12,
+        shadowRadius: 10,
         elevation: 10,
     },
     nextStepInfoWarning: {
-        backgroundColor: '#f59e0b',
-        shadowColor: '#f59e0b',
+        backgroundColor: '#e65100',
+        shadowColor: '#e65100',
     },
     nextStepIcon: {
-        marginRight: 12,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: 'rgba(255,255,255,0.15)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 14,
     },
     nextStepTextContainer: {
         flex: 1,
     },
-    nextStepLabel: {
-        color: 'rgba(255, 255, 255, 0.8)',
-        fontSize: 9,
-        fontWeight: '900',
-        letterSpacing: 1.5,
-    },
     nextStepInstruction: {
         color: '#fff',
-        fontSize: 18,
-        fontWeight: '800',
+        fontSize: 19,
+        fontWeight: '700',
+        lineHeight: 24,
+    },
+    nextStepDist: {
+        color: 'rgba(255,255,255,0.7)',
+        fontSize: 13,
+        fontWeight: '500',
+        marginTop: 3,
     },
     // --- Hazard Warning Banner ---
     warningBanner: {
@@ -665,34 +678,39 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.2)',
         borderRadius: 2,
     },
-    // --- Stats Row ---
+    // --- Stats Row (Google Maps style) ---
     statsRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-around',
-        paddingHorizontal: 20,
-        paddingBottom: 8,
+        justifyContent: 'space-between',
+        paddingHorizontal: 24,
+        paddingBottom: 10,
     },
-    statBox: {
-        alignItems: 'center',
+    statsLeft: {
         flex: 1,
     },
-    statValue: {
-        color: '#fff',
+    statTimeMain: {
+        color: '#34a853',
         fontSize: 22,
-        fontWeight: '900',
-    },
-    statUnit: {
-        color: 'rgba(255,255,255,0.4)',
-        fontSize: 10,
         fontWeight: '700',
-        marginTop: -2,
-        textTransform: 'uppercase',
     },
-    statDivider: {
-        width: 1,
-        height: 28,
-        backgroundColor: 'rgba(255,255,255,0.08)',
+    statDetails: {
+        color: 'rgba(255,255,255,0.5)',
+        fontSize: 13,
+        marginTop: 2,
+    },
+    exitButton: {
+        backgroundColor: 'rgba(234, 67, 53, 0.15)',
+        paddingHorizontal: 24,
+        paddingVertical: 10,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: 'rgba(234, 67, 53, 0.4)',
+    },
+    exitButtonText: {
+        color: '#ea4335',
+        fontSize: 15,
+        fontWeight: '700',
     },
     // --- Safety Badge ---
     safetyBadge: {

@@ -1,33 +1,21 @@
 
 import { showToast } from '@/components/Toast';
 import NetInfo from '@react-native-community/netinfo';
-import Constants from 'expo-constants';
-import * as FileSystem from 'expo-file-system/legacy'; // --- Configuration ---
-// In DEV on LAN: auto-detect machine IP from Expo's dev server.
-// In DEV via tunnel / restricted network: use the deployed backend.
-// In PRODUCTION: use the deployed backend URL.
+
+// --- Configuration ---
+// Uses the deployed Render backend by default.
+// Override with EXPO_PUBLIC_API_URL env var to use a local backend.
 const DEPLOYED_BACKEND = 'https://guardian-ai-backend-vuj9.onrender.com';
 
 function getApiBaseUrl(): string {
-    if (__DEV__) {
-        const debuggerHost =
-            Constants.expoConfig?.hostUri ??
-            (Constants as any).manifest?.debuggerHost ??
-            (Constants as any).manifest2?.extra?.expoGo?.debuggerHost;
-
-        if (debuggerHost) {
-            const host = debuggerHost.split(':')[0];
-            // If the host looks like a local/LAN IP, use local backend
-            if (/^\d+\.\d+\.\d+\.\d+$/.test(host) && !host.startsWith('127.')) {
-                return `http://${host}:8000`;
-            }
-        }
-        // Tunnel mode or can't detect LAN IP — use deployed backend
-        return DEPLOYED_BACKEND;
+    // Always use the deployed backend — the local DB doesn't have
+    // ingested hazard / alert data, so local would show 0 alerts.
+    // To develop against a local backend instead, set EXPO_PUBLIC_API_URL
+    // in your .env to e.g. http://10.0.0.192:8000
+    if (process.env.EXPO_PUBLIC_API_URL) {
+        return process.env.EXPO_PUBLIC_API_URL;
     }
-
-    // Production
-    return process.env.EXPO_PUBLIC_API_URL || DEPLOYED_BACKEND;
+    return DEPLOYED_BACKEND;
 }
 
 const API_BASE_URL = getApiBaseUrl();
