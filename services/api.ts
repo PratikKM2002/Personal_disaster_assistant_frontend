@@ -592,3 +592,123 @@ export async function getHazardsForNavigation(
         return [];
     }
 }
+
+
+// ==============================
+// Document Vault API
+// ==============================
+
+export interface UploadedDocument {
+    success: boolean;
+    key: string;
+    fileName: string;
+}
+
+export interface DocumentItem {
+    key: string;
+    fileName: string;
+    category: string;
+    mimeType: string;
+    size: number;
+    lastModified: string;
+}
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+    const token = await tokenProvider?.();
+    return {
+        Authorization: `Bearer ${token}`,
+    };
+}
+
+export async function uploadDocument(
+    file: { uri: string; name: string; mimeType?: string },
+    category: string
+): Promise<UploadedDocument> {
+    const net = await NetInfo.fetch();
+    if (!net.isConnected) {
+        throw new ApiError('No internet', 0);
+    }
+
+    const formData = new FormData();
+    formData.append('file', {
+        uri: file.uri,
+        name: file.name,
+        type: file.mimeType || 'application/octet-stream',
+    } as any);
+    formData.append('category', category);
+
+    const headers = await getAuthHeaders();
+
+    const response = await fetch(`${API_BASE_URL}/documents/upload`, {
+        method: 'POST',
+        headers,
+        body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+        showToast('error', 'Upload Failed', data.error || 'Unknown error');
+        throw new ApiError(data.error, response.status);
+    }
+
+    return data;
+}
+
+export async function listDocuments(): Promise<DocumentItem[]> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/documents/list`, { headers });
+
+    if (!response.ok) {
+        throw new ApiError('Failed to fetch documents', response.status);
+    }
+
+    return response.json();
+}
+
+export function getPreviewUrl(key: string) {
+    return `${API_BASE_URL}/documents/preview?key=${encodeURIComponent(key)}`;
+}
+
+export async function getPreviewHeaders() {
+    return await getAuthHeaders();
+}
+
+export async function fetchPreviewBase64(key: string): Promise<string> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(
+        `${API_BASE_URL}/documents/preview?key=${encodeURIComponent(key)}`,
+        { headers }
+    );
+
+    if (!response.ok) {
+        throw new ApiError('Preview failed', response.status);
+    }
+
+    const blob = await response.blob();
+    return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+export async function downloadDocumentFile(key: string, fileName: string) {
+    try {
+        const headers = await getAuthHeaders();
+        const response = await fetch(
+            `${API_BASE_URL}/documents/download?key=${encodeURIComponent(key)}`,
+            { headers }
+        );
+
+        if (!response.ok) {
+            throw new ApiError('Download failed', response.status);
+        }
+
+        showToast('success', 'Downloaded', fileName);
+        return true;
+    } catch (e: any) {
+        showToast('error', 'Download Failed', e.message);
+        throw e;
+    }
+}

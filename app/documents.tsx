@@ -1,8 +1,8 @@
-import { AppColors, BorderRadius } from '@/constants/Colors';
-import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+    Button,
+    Image,
+    Modal,
     ScrollView,
     StyleSheet,
     Text,
@@ -10,66 +10,130 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+    downloadDocumentFile,
+    fetchPreviewBase64,
+    listDocuments,
+    uploadDocument,
+} from '../services/api';
+import * as DocumentPicker from 'expo-document-picker';
+import { Ionicons } from '@expo/vector-icons';
 
-interface Document {
-    id: string;
-    name: string;
-    type: 'id' | 'insurance' | 'medical' | 'property' | 'other';
-    icon: string;
-    lastUpdated: string;
-    isVerified: boolean;
+interface DocumentItem {
+    key: string;
+    fileName: string;
+    mimeType?: string;
+    category: string;
 }
-
-const MOCK_DOCUMENTS: Document[] = [
-    { id: '1', name: 'Driver License', type: 'id', icon: '🪪', lastUpdated: '3 days ago', isVerified: true },
-    { id: '2', name: 'Passport', type: 'id', icon: '📕', lastUpdated: '1 week ago', isVerified: true },
-    { id: '3', name: 'Home Insurance', type: 'insurance', icon: '🏠', lastUpdated: '2 weeks ago', isVerified: true },
-    { id: '4', name: 'Car Insurance', type: 'insurance', icon: '🚗', lastUpdated: '1 month ago', isVerified: false },
-    { id: '5', name: 'Medical Records', type: 'medical', icon: '🏥', lastUpdated: '5 days ago', isVerified: true },
-    { id: '6', name: 'Property Deed', type: 'property', icon: '📜', lastUpdated: '3 months ago', isVerified: true },
-];
 
 const CATEGORIES = [
     { id: 'all', label: 'All', icon: 'folder-open' },
-    { id: 'id', label: 'IDs', icon: 'card' },
     { id: 'insurance', label: 'Insurance', icon: 'shield-checkmark' },
     { id: 'medical', label: 'Medical', icon: 'medkit' },
     { id: 'property', label: 'Property', icon: 'home' },
+    { id: 'id', label: 'IDs', icon: 'card' },
 ];
 
-export default function DocumentsScreen() {
-    const [selectedCategory, setSelectedCategory] = useState('all');
-    const [documents, setDocuments] = useState(MOCK_DOCUMENTS);
+const UPLOAD_CATEGORIES = CATEGORIES.filter((c) => c.id !== 'all');
 
-    const filteredDocs = documents.filter(
-        d => selectedCategory === 'all' || d.type === selectedCategory
-    );
+export default function DocumentsScreen() {
+    const [modalVisible, setModalVisible] = useState(false);
+    const [selectedCategory, setSelectedCategory] = useState('all');
+    const [uploadCategory, setUploadCategory] = useState('insurance');
+    const [file, setFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
+    const [previewUris, setPreviewUris] = useState<Record<string, string>>({});
+    const [documents, setDocuments] = useState<DocumentItem[]>([]);
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const docs = await listDocuments();
+                setDocuments(docs);
+
+                const imageDocs = docs.filter((d) => d.mimeType?.startsWith('image/'));
+                for (const doc of imageDocs) {
+                    try {
+                        const uri = await fetchPreviewBase64(doc.key);
+                        setPreviewUris((prev) => ({ ...prev, [doc.key]: uri }));
+                    } catch (e) {
+                        console.log('Preview failed for', doc.key, e);
+                    }
+                }
+            } catch (e) {
+                console.log('Failed to load documents:', e);
+            }
+        })();
+    }, []);
+
+    const pickFile = async () => {
+        const result = await DocumentPicker.getDocumentAsync({
+            type: ['image/*', 'application/pdf'],
+            copyToCacheDirectory: true,
+            multiple: false,
+        });
+
+        if (!result.canceled) {
+            setFile(result.assets[0]);
+        }
+        setModalVisible(false);
+    };
+
+    const handleUpload = async () => {
+        if (!file) return;
+        try {
+            const data = await uploadDocument(file, uploadCategory);
+
+            const newDoc: DocumentItem = {
+                key: data.key,
+                fileName: data.fileName,
+                mimeType: file.mimeType,
+                category: uploadCategory,
+            };
+
+            setDocuments((prev) => [...prev, newDoc]);
+
+            if (newDoc.mimeType?.startsWith('image/')) {
+                try {
+                    const uri = await fetchPreviewBase64(data.key);
+                    setPreviewUris((prev) => ({ ...prev, [data.key]: uri }));
+                } catch (e) {
+                    console.log('Preview failed for uploaded doc:', e);
+                }
+            }
+
+            setFile(null);
+        } catch (e) {
+            console.log(e);
+        }
+    };
+
+    const filteredDocuments =
+        selectedCategory === 'all'
+            ? documents
+            : documents.filter((d) => d.category === selectedCategory);
 
     return (
         <SafeAreaView style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity
-                    style={styles.backButton}
-                    onPress={() => router.back()}
-                >
-                    <Ionicons name="chevron-back" size={24} color="#fff" />
-                </TouchableOpacity>
                 <Text style={styles.title}>Document Vault</Text>
-                <TouchableOpacity style={styles.addButton}>
+                <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={() => setModalVisible(true)}
+                >
                     <Ionicons name="add" size={24} color="#fff" />
                 </TouchableOpacity>
             </View>
 
-            {/* Info Banner */}
+            {/* Security Banner */}
             <View style={styles.infoBanner}>
                 <Ionicons name="lock-closed" size={18} color="#22c55e" />
                 <Text style={styles.infoText}>
-                    Your documents are encrypted and stored securely
+                    Documents are encrypted before upload
                 </Text>
             </View>
 
-            {/* Category Filter */}
+            {/* Categories */}
             <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -81,7 +145,7 @@ export default function DocumentsScreen() {
                         key={cat.id}
                         style={[
                             styles.categoryChip,
-                            selectedCategory === cat.id && styles.categoryChipActive
+                            selectedCategory === cat.id && styles.categoryChipActive,
                         ]}
                         onPress={() => setSelectedCategory(cat.id)}
                     >
@@ -90,66 +154,137 @@ export default function DocumentsScreen() {
                             size={16}
                             color={selectedCategory === cat.id ? '#fff' : '#9ca3af'}
                         />
-                        <Text style={[
-                            styles.categoryLabel,
-                            selectedCategory === cat.id && styles.categoryLabelActive
-                        ]}>
+                        <Text
+                            style={[
+                                styles.categoryLabel,
+                                selectedCategory === cat.id && styles.categoryLabelActive,
+                            ]}
+                        >
                             {cat.label}
                         </Text>
                     </TouchableOpacity>
                 ))}
             </ScrollView>
 
-            {/* Document List */}
             <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-                {filteredDocs.map((doc) => (
-                    <TouchableOpacity key={doc.id} style={styles.docCard}>
-                        <View style={styles.docIcon}>
-                            <Text style={{ fontSize: 28 }}>{doc.icon}</Text>
-                        </View>
-                        <View style={styles.docInfo}>
-                            <View style={styles.docNameRow}>
-                                <Text style={styles.docName}>{doc.name}</Text>
-                                {doc.isVerified && (
-                                    <View style={styles.verifiedBadge}>
-                                        <Ionicons name="checkmark-circle" size={14} color="#22c55e" />
-                                    </View>
-                                )}
+                {/* Upload Preview */}
+                {file && (
+                    <View style={styles.previewCard}>
+                        <Text style={styles.previewTitle}>Ready to Upload</Text>
+                        <Text style={styles.fileName}>{file.name}</Text>
+
+                        {file.mimeType?.startsWith('image/') && (
+                            <Image source={{ uri: file.uri }} style={styles.previewImage} />
+                        )}
+
+                        <TouchableOpacity style={styles.uploadBtn} onPress={handleUpload}>
+                            <Ionicons name="cloud-upload" size={18} color="#fff" />
+                            <Text style={styles.btnText}>Upload</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* Documents */}
+                {filteredDocuments.map((doc) => (
+                    <View key={doc.key} style={styles.docCard}>
+                        <View style={styles.docHeader}>
+                            <View style={styles.docIcon}>
+                                <Ionicons
+                                    name={doc.mimeType?.startsWith('image/') ? 'image' : 'document-text'}
+                                    size={24}
+                                    color="#fff"
+                                />
                             </View>
-                            <Text style={styles.docMeta}>Updated {doc.lastUpdated}</Text>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.docName}>{doc.fileName}</Text>
+                                <Text style={styles.docCategory}>{doc.category}</Text>
+                            </View>
                         </View>
-                        <View style={styles.docActions}>
-                            <TouchableOpacity style={styles.docAction}>
-                                <Ionicons name="eye-outline" size={20} color="#9ca3af" />
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.docAction}>
-                                <Ionicons name="share-outline" size={20} color="#9ca3af" />
-                            </TouchableOpacity>
-                        </View>
-                    </TouchableOpacity>
+
+                        {/* Preview */}
+                        {doc.mimeType?.startsWith('image/') ? (
+                            previewUris[doc.key] ? (
+                                <Image source={{ uri: previewUris[doc.key] }} style={styles.documentPreview} />
+                            ) : (
+                                <View style={styles.pdfPreview}>
+                                    <Ionicons name="image-outline" size={48} color="#6b7280" />
+                                    <Text style={{ color: '#9ca3af', marginTop: 10 }}>Loading preview...</Text>
+                                </View>
+                            )
+                        ) : (
+                            <View style={styles.pdfPreview}>
+                                <Ionicons name="document" size={48} color="#ef4444" />
+                                <Text style={{ color: '#9ca3af', marginTop: 10 }}>PDF Preview</Text>
+                            </View>
+                        )}
+
+                        <TouchableOpacity
+                            style={styles.downloadBtn}
+                            onPress={() => downloadDocumentFile(doc.key, doc.fileName)}
+                        >
+                            <Ionicons name="download" size={18} color="#fff" />
+                            <Text style={styles.btnText}>Download</Text>
+                        </TouchableOpacity>
+                    </View>
                 ))}
 
-                {/* Add Document Button */}
-                <TouchableOpacity style={styles.addDocButton}>
-                    <Ionicons name="cloud-upload-outline" size={24} color="#3b82f6" />
-                    <Text style={styles.addDocTitle}>Add Document</Text>
-                    <Text style={styles.addDocSubtitle}>
-                        Take a photo or upload from gallery
-                    </Text>
-                </TouchableOpacity>
-
-                {/* Tip Card */}
-                <View style={styles.tipCard}>
-                    <Ionicons name="bulb" size={20} color="#eab308" />
-                    <View style={styles.tipContent}>
-                        <Text style={styles.tipTitle}>Pro Tip</Text>
-                        <Text style={styles.tipText}>
-                            Keep digital copies of important documents accessible during emergencies
-                            when you may not have access to physical copies.
+                {/* Empty */}
+                {filteredDocuments.length === 0 && (
+                    <View style={styles.emptyState}>
+                        <Ionicons name="folder-open-outline" size={64} color="#6b7280" />
+                        <Text style={styles.emptyTitle}>No Documents</Text>
+                        <Text style={styles.emptySubtitle}>
+                            Upload secure documents to access them anytime
                         </Text>
                     </View>
-                </View>
+                )}
             </ScrollView>
+
+            {/* Upload Modal */}
+            <Modal visible={modalVisible} transparent animationType="slide">
+                <View style={styles.modalBg}>
+                    <View style={styles.modal}>
+                        <Text style={styles.modalTitle}>Upload Image or PDF</Text>
+                        <Text style={{ color: '#6b7280', marginBottom: 10 }}>Category</Text>
+
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+                            {UPLOAD_CATEGORIES.map((cat) => (
+                                <TouchableOpacity
+                                    key={cat.id}
+                                    style={[
+                                        styles.categoryChip,
+                                        uploadCategory === cat.id && styles.categoryChipActive,
+                                    ]}
+                                    onPress={() => setUploadCategory(cat.id)}
+                                >
+                                    <Ionicons
+                                        name={cat.icon as any}
+                                        size={14}
+                                        color={uploadCategory === cat.id ? '#fff' : '#9ca3af'}
+                                    />
+                                    <Text
+                                        style={[
+                                            styles.categoryLabel,
+                                            uploadCategory === cat.id && styles.categoryLabelActive,
+                                        ]}
+                                    >
+                                        {cat.label}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+
+                        <Button title="Choose File" onPress={pickFile} />
+
+                        <TouchableOpacity
+                            onPress={() => setModalVisible(false)}
+                            style={{ marginTop: 20 }}
+                        >
+                            <Text style={{ textAlign: 'center' }}>Close</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -157,177 +292,190 @@ export default function DocumentsScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: AppColors.background,
+        backgroundColor: '#0f172a',
     },
     header: {
         flexDirection: 'row',
-        alignItems: 'center',
         justifyContent: 'space-between',
-        padding: 16,
-    },
-    backButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        justifyContent: 'center',
         alignItems: 'center',
+        padding: 20,
     },
     title: {
         color: '#fff',
-        fontSize: 18,
-        fontWeight: '600',
+        fontSize: 24,
+        fontWeight: '700',
     },
     addButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: '#3b82f6',
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        backgroundColor: '#2563eb',
         justifyContent: 'center',
         alignItems: 'center',
     },
     infoBanner: {
         flexDirection: 'row',
         alignItems: 'center',
+        marginHorizontal: 20,
+        padding: 14,
+        borderRadius: 12,
+        backgroundColor: 'rgba(34,197,94,0.15)',
         gap: 10,
-        backgroundColor: 'rgba(34, 197, 94, 0.15)',
-        marginHorizontal: 16,
-        padding: 12,
-        borderRadius: BorderRadius.md,
-        borderWidth: 1,
-        borderColor: 'rgba(34, 197, 94, 0.3)',
     },
     infoText: {
         color: '#86efac',
-        fontSize: 13,
         flex: 1,
     },
     categoryScroll: {
+        marginTop: 20,
         maxHeight: 50,
-        marginTop: 12,
     },
     categoryContainer: {
-        paddingHorizontal: 16,
-        gap: 8,
+        paddingHorizontal: 20,
+        gap: 10,
     },
     categoryChip: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        paddingHorizontal: 12,
+        paddingHorizontal: 14,
         paddingVertical: 8,
         borderRadius: 20,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: 'rgba(255,255,255,0.08)',
     },
     categoryChipActive: {
-        backgroundColor: '#3b82f6',
+        backgroundColor: '#2563eb',
     },
     categoryLabel: {
         color: '#9ca3af',
-        fontSize: 12,
-        fontWeight: '500',
     },
     categoryLabelActive: {
         color: '#fff',
     },
     list: {
         flex: 1,
-        marginTop: 12,
     },
     listContent: {
+        padding: 20,
+        gap: 16,
+    },
+    previewCard: {
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderRadius: 16,
         padding: 16,
-        gap: 10,
+    },
+    previewTitle: {
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: '700',
+    },
+    fileName: {
+        color: '#9ca3af',
+        marginTop: 8,
+    },
+    previewImage: {
+        width: '100%',
+        height: 220,
+        borderRadius: 12,
+        marginTop: 16,
+    },
+    uploadBtn: {
+        backgroundColor: '#16a34a',
+        padding: 14,
+        borderRadius: 12,
+        marginTop: 16,
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 8,
+    },
+    downloadBtn: {
+        backgroundColor: '#9333ea',
+        padding: 14,
+        borderRadius: 12,
+        marginTop: 16,
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 8,
+    },
+    btnText: {
+        color: '#fff',
+        fontWeight: '700',
     },
     docCard: {
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderRadius: 16,
+        padding: 16,
+    },
+    docHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-        padding: 14,
-        borderRadius: BorderRadius.lg,
-        borderWidth: 1,
-        borderColor: AppColors.border,
+        marginBottom: 16,
     },
     docIcon: {
         width: 50,
         height: 50,
         borderRadius: 12,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: '#2563eb',
         justifyContent: 'center',
         alignItems: 'center',
-    },
-    docInfo: {
-        flex: 1,
-        marginLeft: 12,
-    },
-    docNameRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
+        marginRight: 12,
     },
     docName: {
         color: '#fff',
-        fontSize: 15,
-        fontWeight: '500',
-    },
-    verifiedBadge: {},
-    docMeta: {
-        color: '#9ca3af',
-        fontSize: 12,
-        marginTop: 4,
-    },
-    docActions: {
-        flexDirection: 'row',
-        gap: 4,
-    },
-    docAction: {
-        width: 36,
-        height: 36,
-        borderRadius: 8,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    addDocButton: {
-        alignItems: 'center',
-        paddingVertical: 24,
-        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-        borderRadius: BorderRadius.lg,
-        borderWidth: 1,
-        borderColor: '#3b82f6',
-        borderStyle: 'dashed',
-        marginTop: 8,
-    },
-    addDocTitle: {
-        color: '#3b82f6',
         fontSize: 16,
         fontWeight: '600',
-        marginTop: 8,
     },
-    addDocSubtitle: {
-        color: '#6b7280',
-        fontSize: 12,
-        marginTop: 4,
-    },
-    tipCard: {
-        flexDirection: 'row',
-        gap: 12,
-        backgroundColor: 'rgba(234, 179, 8, 0.1)',
-        padding: 14,
-        borderRadius: BorderRadius.lg,
-        marginTop: 16,
-    },
-    tipContent: {
-        flex: 1,
-    },
-    tipTitle: {
-        color: '#fbbf24',
-        fontSize: 14,
-        fontWeight: '600',
-    },
-    tipText: {
+    docCategory: {
         color: '#9ca3af',
-        fontSize: 12,
         marginTop: 4,
-        lineHeight: 18,
+    },
+    documentPreview: {
+        width: '100%',
+        height: 240,
+        borderRadius: 12,
+    },
+    pdfPreview: {
+        height: 220,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255,255,255,0.05)',
+    },
+    emptyState: {
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: 60,
+    },
+    emptyTitle: {
+        color: '#fff',
+        fontSize: 20,
+        fontWeight: '700',
+        marginTop: 20,
+    },
+    emptySubtitle: {
+        color: '#9ca3af',
+        textAlign: 'center',
+        marginTop: 10,
+        lineHeight: 22,
+    },
+    modalBg: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.6)',
+    },
+    modal: {
+        width: 320,
+        backgroundColor: '#fff',
+        padding: 24,
+        borderRadius: 16,
+    },
+    modalTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        marginBottom: 20,
+        textAlign: 'center',
     },
 });

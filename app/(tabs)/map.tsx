@@ -1,4 +1,4 @@
-import NativeMap from '@/components/NativeMap';
+import NativeMap, { ResourceMarker } from '@/components/NativeMap';
 import SafetyStatusBar from '@/components/SafetyStatusBar';
 import { AppColors, BorderRadius } from '@/constants/Colors';
 import { MOCK_USER_LOCATION } from '@/constants/Data';
