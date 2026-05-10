@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 
 // S3 client — uses AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION from env
 const s3 = new S3Client({
@@ -252,4 +252,21 @@ function parseMultipart(body, boundary) {
     return parts;
 }
 
-module.exports = { uploadEncryptedFileToS3, previewDocument, downloadDocument, listDocuments };
+
+async function deleteDocument(req, res, requireAuth) {
+    try {
+        const auth = await requireAuth(req, res);
+        if (!auth) return;
+        const url = new URL(req.url, 'http://localhost');
+        const key = url.searchParams.get('key');
+        if (!key) { res.end(JSON.stringify({ error: 'key required' })); return; }
+        if (!key.startsWith(auth.uid)) { res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
+        await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+        res.end(JSON.stringify({ success: true }));
+    } catch (e) {
+        console.error('[Documents] Delete error:', e);
+        res.end(JSON.stringify({ error: 'Delete failed' }));
+    }
+}
+
+module.exports = { uploadEncryptedFileToS3, previewDocument, downloadDocument, listDocuments, deleteDocument };

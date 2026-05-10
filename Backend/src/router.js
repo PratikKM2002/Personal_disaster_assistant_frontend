@@ -10,7 +10,7 @@ const { communityRoutes } = require('./routes/community');
 const { alertRoutes } = require('./routes/alerts');
 const { shelterRoutes } = require('./routes/shelters');
 const { sosRoutes } = require('./routes/sos');
-const { uploadEncryptedFileToS3, previewDocument, downloadDocument, listDocuments } = require('./routes/documents');
+const { uploadEncryptedFileToS3, previewDocument, downloadDocument, listDocuments, deleteDocument } = require('./routes/documents');
 
 async function router(req, res) {
   try {
@@ -56,6 +56,7 @@ async function router(req, res) {
     if (await previewDocument(req, res, requireAuth)) return;
     if (await downloadDocument(req, res, requireAuth)) return;
     if (await listDocuments(req, res, requireAuth)) return;
+    if (await deleteDocument(req, res, requireAuth)) return;
 
     return send(res, 404, { error: 'Not Found' });
 

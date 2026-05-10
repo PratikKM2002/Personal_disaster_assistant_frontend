@@ -781,3 +781,9 @@ export async function downloadDocumentFile(key: string, fileName: string) {
         throw e;
     }
 }
+
+export async function deleteDocument(key: string): Promise<{ success: boolean }> {
+    const encodedKey = encodeURIComponent(key);
+    const res = await apiFetch(`/documents/delete?key=${encodedKey}`, { method: 'DELETE' });
+    return res.json();
+}
