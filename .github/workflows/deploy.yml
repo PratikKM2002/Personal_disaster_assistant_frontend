@@ -3,15 +3,10 @@ name: Deploy
 on:
   push:
     branches: [master, main]
-  pull_request:
-    branches: [master, main]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      contents: read
 
     steps:
       - name: Checkout
@@ -33,17 +28,3 @@ jobs:
 
       - name: Publish OTA update
         run: eas update --branch production --message "Auto deploy from ${{ github.sha }}" --platform all --non-interactive
-
-      - name: Comment QR on PR
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const url = 'exp://u.expo.dev/1f8ba8ff-5893-43f8-81fe-dcf3b6f121ee?channel-name=production';
-            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(url)}`;
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `## 📱 Live Preview Ready!\n\n**Scan with Expo Go:**\n\n![QR Code](${qrUrl})\n\n**Or open on phone:** ${url}\n\n✅ Backend auto-deployed on Render\n✅ OTA update published`
-            });
