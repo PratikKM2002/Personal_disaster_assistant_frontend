@@ -17,15 +17,26 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function AuthScreen() {
-    const { login, register, loginWithGoogle, googleLoading, isAuthenticated } = useAuth();
+    const {
+        login,
+        register,
+        verifyEmailCode,
+        resendEmailCode,
+        loginWithGoogle,
+        googleLoading,
+        isAuthenticated,
+    } = useAuth();
     const [isLogin, setIsLogin] = useState(true);
+    const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [phone, setPhone] = useState('');
+    const [verificationCode, setVerificationCode] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [message, setMessage] = useState('');
 
     // Navigate to main app when auth succeeds (covers Google flow)
     useEffect(() => {
@@ -43,9 +54,37 @@ export default function AuthScreen() {
         return 'Something went wrong. Please try again.';
     };
 
+    const resetVerification = () => {
+        setIsVerifyingEmail(false);
+        setVerificationCode('');
+        setMessage('');
+    };
+
     const handleSubmit = async () => {
         setError('');
-        if (!email.trim() || !password.trim()) {
+        setMessage('');
+
+        if (isVerifyingEmail) {
+            const code = verificationCode.trim();
+            if (!code) {
+                setError('Verification code is required');
+                return;
+            }
+
+            setLoading(true);
+            try {
+                await verifyEmailCode(code);
+                router.replace('/(tabs)');
+            } catch (e: any) {
+                setError(getErrorMessage(e));
+            } finally {
+                setLoading(false);
+            }
+            return;
+        }
+
+        const trimmedEmail = email.trim();
+        if (!trimmedEmail || !password.trim()) {
             setError('Email and password are required');
             return;
         }
@@ -57,9 +96,14 @@ export default function AuthScreen() {
         setLoading(true);
         try {
             if (isLogin) {
-                await login(email.trim(), password);
+                await login(trimmedEmail, password);
             } else {
-                await register(name.trim(), email.trim(), password, phone.trim() || undefined);
+                const result = await register(name.trim(), trimmedEmail, password, phone.trim() || undefined);
+                if (result === 'needs_verification') {
+                    setIsVerifyingEmail(true);
+                    setMessage(`Verification code sent to ${trimmedEmail}`);
+                    return;
+                }
             }
             router.replace('/(tabs)');
         } catch (e: any) {
@@ -104,7 +148,7 @@ export default function AuthScreen() {
                     <View style={styles.tabContainer}>
                         <TouchableOpacity
                             style={[styles.tab, isLogin && styles.tabActive]}
-                            onPress={() => { setIsLogin(true); setError(''); }}
+                            onPress={() => { setIsLogin(true); setError(''); resetVerification(); }}
                         >
                             <Text style={[styles.tabText, isLogin && styles.tabTextActive]}>
                                 Sign In
@@ -112,7 +156,7 @@ export default function AuthScreen() {
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={[styles.tab, !isLogin && styles.tabActive]}
-                            onPress={() => { setIsLogin(false); setError(''); }}
+                            onPress={() => { setIsLogin(false); setError(''); resetVerification(); }}
                         >
                             <Text style={[styles.tabText, !isLogin && styles.tabTextActive]}>
                                 Create Account
@@ -129,7 +173,64 @@ export default function AuthScreen() {
                             </View>
                         ) : null}
 
-                        {!isLogin && (
+                        {message ? (
+                            <View style={styles.messageBox}>
+                                <Ionicons name="mail-open-outline" size={16} color="#22c55e" />
+                                <Text style={styles.messageText}>{message}</Text>
+                            </View>
+                        ) : null}
+
+                        {isVerifyingEmail ? (
+                            <>
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.label}>Verification Code</Text>
+                                    <View style={styles.inputWrapper}>
+                                        <Ionicons name="keypad-outline" size={18} color="#6b7280" style={styles.inputIcon} />
+                                        <TextInput
+                                            style={styles.input}
+                                            placeholder="Enter code"
+                                            placeholderTextColor="#6b7280"
+                                            value={verificationCode}
+                                            onChangeText={setVerificationCode}
+                                            keyboardType="number-pad"
+                                            textContentType="oneTimeCode"
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                        />
+                                    </View>
+                                </View>
+
+                                <View style={styles.verificationActions}>
+                                    <TouchableOpacity
+                                        onPress={async () => {
+                                            setError('');
+                                            setMessage('');
+                                            setLoading(true);
+                                            try {
+                                                await resendEmailCode();
+                                                setMessage(`New code sent to ${email.trim()}`);
+                                            } catch (e: any) {
+                                                setError(getErrorMessage(e));
+                                            } finally {
+                                                setLoading(false);
+                                            }
+                                        }}
+                                        disabled={loading}
+                                    >
+                                        <Text style={styles.linkText}>Resend code</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        onPress={() => {
+                                            setError('');
+                                            resetVerification();
+                                        }}
+                                        disabled={loading}
+                                    >
+                                        <Text style={styles.linkText}>Edit email</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </>
+                        ) : !isLogin && (
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>Full Name</Text>
                                 <View style={styles.inputWrapper}>
@@ -146,49 +247,53 @@ export default function AuthScreen() {
                             </View>
                         )}
 
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>Email</Text>
-                            <View style={styles.inputWrapper}>
-                                <Ionicons name="mail-outline" size={18} color="#6b7280" style={styles.inputIcon} />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="you@example.com"
-                                    placeholderTextColor="#6b7280"
-                                    value={email}
-                                    onChangeText={setEmail}
-                                    keyboardType="email-address"
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                />
-                            </View>
-                        </View>
+                        {!isVerifyingEmail && (
+                            <>
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.label}>Email</Text>
+                                    <View style={styles.inputWrapper}>
+                                        <Ionicons name="mail-outline" size={18} color="#6b7280" style={styles.inputIcon} />
+                                        <TextInput
+                                            style={styles.input}
+                                            placeholder="you@example.com"
+                                            placeholderTextColor="#6b7280"
+                                            value={email}
+                                            onChangeText={setEmail}
+                                            keyboardType="email-address"
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                        />
+                                    </View>
+                                </View>
 
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>Password</Text>
-                            <View style={styles.inputWrapper}>
-                                <Ionicons name="lock-closed-outline" size={18} color="#6b7280" style={styles.inputIcon} />
-                                <TextInput
-                                    style={[styles.input, styles.passwordInput]}
-                                    placeholder="Enter your password"
-                                    placeholderTextColor="#6b7280"
-                                    value={password}
-                                    onChangeText={setPassword}
-                                    secureTextEntry={!showPassword}
-                                />
-                                <TouchableOpacity
-                                    onPress={() => setShowPassword(!showPassword)}
-                                    style={styles.eyeButton}
-                                >
-                                    <Ionicons
-                                        name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                                        size={18}
-                                        color="#6b7280"
-                                    />
-                                </TouchableOpacity>
-                            </View>
-                        </View>
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.label}>Password</Text>
+                                    <View style={styles.inputWrapper}>
+                                        <Ionicons name="lock-closed-outline" size={18} color="#6b7280" style={styles.inputIcon} />
+                                        <TextInput
+                                            style={[styles.input, styles.passwordInput]}
+                                            placeholder="Enter your password"
+                                            placeholderTextColor="#6b7280"
+                                            value={password}
+                                            onChangeText={setPassword}
+                                            secureTextEntry={!showPassword}
+                                        />
+                                        <TouchableOpacity
+                                            onPress={() => setShowPassword(!showPassword)}
+                                            style={styles.eyeButton}
+                                        >
+                                            <Ionicons
+                                                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                                                size={18}
+                                                color="#6b7280"
+                                            />
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            </>
+                        )}
 
-                        {!isLogin && (
+                        {!isLogin && !isVerifyingEmail && (
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>Phone (optional)</Text>
                                 <View style={styles.inputWrapper}>
@@ -216,12 +321,12 @@ export default function AuthScreen() {
                             ) : (
                                 <>
                                     <Ionicons
-                                        name={isLogin ? 'log-in-outline' : 'person-add-outline'}
+                                        name={isVerifyingEmail ? 'checkmark-circle-outline' : (isLogin ? 'log-in-outline' : 'person-add-outline')}
                                         size={20}
                                         color="#fff"
                                     />
                                     <Text style={styles.submitText}>
-                                        {isLogin ? 'Sign In' : 'Create Account'}
+                                        {isVerifyingEmail ? 'Verify Email' : (isLogin ? 'Sign In' : 'Create Account')}
                                     </Text>
                                 </>
                             )}
@@ -229,37 +334,41 @@ export default function AuthScreen() {
                     </View>
 
                     {/* Divider */}
-                    <View style={styles.dividerContainer}>
-                        <View style={styles.dividerLine} />
-                        <Text style={styles.dividerText}>OR</Text>
-                        <View style={styles.dividerLine} />
-                    </View>
+                    {!isVerifyingEmail && (
+                        <>
+                            <View style={styles.dividerContainer}>
+                                <View style={styles.dividerLine} />
+                                <Text style={styles.dividerText}>OR</Text>
+                                <View style={styles.dividerLine} />
+                            </View>
 
-                    {/* Google Sign-In Button */}
-                    <TouchableOpacity
-                        style={[styles.googleButton, (loading || googleLoading) && styles.submitButtonDisabled]}
-                        onPress={async () => {
-                            setError('');
-                            try {
-                                await loginWithGoogle();
-                            } catch (e: any) {
-                                setError(getErrorMessage(e));
-                            }
-                        }}
-                        disabled={loading || googleLoading}
-                        activeOpacity={0.8}
-                    >
-                        {googleLoading ? (
-                            <ActivityIndicator color="#fff" size="small" />
-                        ) : (
-                            <>
-                                <View style={styles.googleIconContainer}>
-                                    <Text style={styles.googleG}>G</Text>
-                                </View>
-                                <Text style={styles.googleButtonText}>Sign in with Google</Text>
-                            </>
-                        )}
-                    </TouchableOpacity>
+                            {/* Google Sign-In Button */}
+                            <TouchableOpacity
+                                style={[styles.googleButton, (loading || googleLoading) && styles.submitButtonDisabled]}
+                                onPress={async () => {
+                                    setError('');
+                                    try {
+                                        await loginWithGoogle();
+                                    } catch (e: any) {
+                                        setError(getErrorMessage(e));
+                                    }
+                                }}
+                                disabled={loading || googleLoading}
+                                activeOpacity={0.8}
+                            >
+                                {googleLoading ? (
+                                    <ActivityIndicator color="#fff" size="small" />
+                                ) : (
+                                    <>
+                                        <View style={styles.googleIconContainer}>
+                                            <Text style={styles.googleG}>G</Text>
+                                        </View>
+                                        <Text style={styles.googleButtonText}>Sign in with Google</Text>
+                                    </>
+                                )}
+                            </TouchableOpacity>
+                        </>
+                    )}
 
                     {/* Footer hint */}
                     <View style={styles.footer}>
@@ -376,6 +485,21 @@ const styles = StyleSheet.create({
         fontSize: 13,
         flex: 1,
     },
+    messageBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: 'rgba(34, 197, 94, 0.14)',
+        padding: 12,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: 'rgba(34, 197, 94, 0.3)',
+    },
+    messageText: {
+        color: '#22c55e',
+        fontSize: 13,
+        flex: 1,
+    },
     inputGroup: {
         gap: 6,
     },
@@ -429,6 +553,18 @@ const styles = StyleSheet.create({
     submitText: {
         color: '#fff',
         fontSize: 16,
+        fontWeight: '600',
+    },
+    verificationActions: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: -4,
+        paddingHorizontal: 4,
+    },
+    linkText: {
+        color: '#60a5fa',
+        fontSize: 13,
         fontWeight: '600',
     },
     footer: {

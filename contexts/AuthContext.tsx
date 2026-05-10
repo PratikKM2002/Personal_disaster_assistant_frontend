@@ -17,7 +17,9 @@ interface AuthContextType {
     isLoading: boolean;
     isAuthenticated: boolean;
     login: (email: string, password: string) => Promise<void>;
-    register: (name: string, email: string, password: string, phone?: string) => Promise<void>;
+    register: (name: string, email: string, password: string, phone?: string) => Promise<'complete' | 'needs_verification'>;
+    verifyEmailCode: (code: string) => Promise<void>;
+    resendEmailCode: () => Promise<void>;
     loginWithGoogle: () => Promise<void>;
     logout: () => Promise<void>;
     googleLoading: boolean;
@@ -28,7 +30,9 @@ const AuthContext = createContext<AuthContextType>({
     isLoading: true,
     isAuthenticated: false,
     login: async () => { },
-    register: async () => { },
+    register: async () => 'complete',
+    verifyEmailCode: async () => { },
+    resendEmailCode: async () => { },
     loginWithGoogle: async () => { },
     logout: async () => { },
     googleLoading: false,
@@ -117,16 +121,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             if (result.status === 'complete' && result.createdSessionId) {
                 await setSignUpActive!({ session: result.createdSessionId });
+                return 'complete';
             } else if (result.status === 'missing_requirements') {
                 await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-                throw new Error(
-                    'Please check your email for a verification code. Email verification is required.'
-                );
+                return 'needs_verification';
             } else {
                 throw new Error('Sign up failed');
             }
         },
         [signUp, signUpLoaded, setSignUpActive]
+    );
+
+    const verifyEmailCode = useCallback(
+        async (code: string) => {
+            if (!signUpLoaded || !signUp) throw new Error('Sign up not loaded');
+
+            const result = await signUp.attemptEmailAddressVerification({ code });
+
+            if (result.status === 'complete' && result.createdSessionId) {
+                await setSignUpActive!({ session: result.createdSessionId });
+            } else {
+                throw new Error('Email verification incomplete. Please check the code and try again.');
+            }
+        },
+        [signUp, signUpLoaded, setSignUpActive]
+    );
+
+    const resendEmailCode = useCallback(
+        async () => {
+            if (!signUpLoaded || !signUp) throw new Error('Sign up not loaded');
+            await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+        },
+        [signUp, signUpLoaded]
     );
 
     const loginWithGoogle = useCallback(async () => {
@@ -160,6 +186,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 isAuthenticated: !!isSignedIn,
                 login,
                 register,
+                verifyEmailCode,
+                resendEmailCode,
                 loginWithGoogle,
                 logout,
                 googleLoading,
