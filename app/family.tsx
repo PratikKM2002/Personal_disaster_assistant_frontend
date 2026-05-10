@@ -305,9 +305,12 @@ export default function FamilyScreen() {
 
     const requestCheckIn = (id: string) => {
         const member = family.find(m => m.id === id);
-        if (member) {
-            sendSMS(member.phone, 'Please check in! Are you safe? Reply with your status.');
+        if (!member) return;
+        if (!member.phone) {
+            Alert.alert('No Phone Number', `${member.name} has not added a phone number yet.`);
+            return;
         }
+        sendSMS(member.phone, 'Please check in! Are you safe? Reply with your status.');
     };
 
     const navigateToMember = (member: UIFamilyMember) => {
@@ -572,8 +575,14 @@ export default function FamilyScreen() {
                                                     <Text style={styles.navigateToText}>Navigate</Text>
                                                 </TouchableOpacity>
                                                 <TouchableOpacity
-                                                    style={styles.mapCallButton}
-                                                    onPress={() => makePhoneCall(member.phone)}
+                                                    style={[styles.mapCallButton, !member.phone && { opacity: 0.4 }]}
+                                                    onPress={() => {
+                                                        if (!member.phone) {
+                                                            Alert.alert('No Phone Number', `${member.name} has not added a phone number yet.`);
+                                                            return;
+                                                        }
+                                                        makePhoneCall(member.phone);
+                                                    }}
                                                 >
                                                     <Ionicons name="call" size={14} color="#22c55e" />
                                                 </TouchableOpacity>
@@ -644,14 +653,26 @@ export default function FamilyScreen() {
 
                                         <View style={styles.memberActions}>
                                             <TouchableOpacity
-                                                style={styles.actionButton}
-                                                onPress={() => makePhoneCall(member.phone)}
+                                                style={[styles.actionButton, !member.phone && { opacity: 0.4 }]}
+                                                onPress={() => {
+                                                    if (!member.phone) {
+                                                        Alert.alert('No Phone Number', `${member.name} has not added a phone number yet.`);
+                                                        return;
+                                                    }
+                                                    makePhoneCall(member.phone);
+                                                }}
                                             >
                                                 <Ionicons name="call" size={16} color="#22c55e" />
                                             </TouchableOpacity>
                                             <TouchableOpacity
-                                                style={styles.actionButton}
-                                                onPress={() => sendSMS(member.phone)}
+                                                style={[styles.actionButton, !member.phone && { opacity: 0.4 }]}
+                                                onPress={() => {
+                                                    if (!member.phone) {
+                                                        Alert.alert('No Phone Number', `${member.name} has not added a phone number yet.`);
+                                                        return;
+                                                    }
+                                                    sendSMS(member.phone);
+                                                }}
                                             >
                                                 <Ionicons name="chatbubble" size={16} color="#3b82f6" />
                                             </TouchableOpacity>
