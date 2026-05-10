@@ -2,7 +2,7 @@ import SOSButton from '@/components/SOSButton';
 import SafetyStatusBar from '@/components/SafetyStatusBar';
 import { AppColors, BorderRadius } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { getFloodRisk, getOverview, WeatherData } from '@/services/api';
+import { getFloodRisk, getLiveWeather, getOverview, WeatherData } from '@/services/api';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
@@ -48,6 +48,32 @@ function getWeatherLabel(code: number) {
   if (code <= 48) return 'Foggy';
   if (code <= 67) return 'Rainy';
   return 'Overcast';
+}
+
+function parseForecastDate(date: string) {
+  const [year, month, day] = date.split('-').map(Number);
+  if (!year || !month || !day) return new Date(date);
+  return new Date(year, month - 1, day);
+}
+
+function getForecastDateLabel(date: string, index: number) {
+  if (index === 0) return 'Today';
+  return parseForecastDate(date).toLocaleDateString([], { weekday: 'short' });
+}
+
+async function resolveWeather(
+  overviewWeather: WeatherData | null | undefined,
+  lat: number,
+  lon: number
+): Promise<WeatherData | undefined> {
+  if (overviewWeather) return overviewWeather;
+
+  try {
+    return (await getLiveWeather(lat, lon)) || undefined;
+  } catch (err) {
+    console.log('Weather fallback failed', err);
+    return undefined;
+  }
 }
 
 export default function HomeScreen() {
@@ -191,8 +217,8 @@ export default function HomeScreen() {
         setFloodRisk(floodData);
 
         if (overviewData.stats) setStats(overviewData.stats);
-        // Set weather even if null — so we know the fetch completed
-        setWeather(overviewData.weather || undefined);
+        const nextWeather = await resolveWeather(overviewData.weather, lat, lon);
+        setWeather(nextWeather);
         setWeatherLoaded(true);
       };
 
@@ -376,7 +402,12 @@ export default function HomeScreen() {
                   setShelterCount(overviewData.shelters?.items?.length || 0);
                   setFloodRisk(floodData);
                   if (overviewData.stats) setStats(overviewData.stats);
-                  setWeather(overviewData.weather || undefined);
+                  const nextWeather = await resolveWeather(
+                    overviewData.weather,
+                    currentUserLocation.lat,
+                    currentUserLocation.lng
+                  );
+                  setWeather(nextWeather);
                   setWeatherLoaded(true);
                 } catch {
                   setFetchFailed(true);
@@ -404,8 +435,15 @@ export default function HomeScreen() {
               (async () => {
                 try {
                   const overviewData = await getOverview(currentUserLocation.lat, currentUserLocation.lng, 50);
-                  setWeather(overviewData.weather || undefined);
-                } catch {} finally {
+                  const nextWeather = await resolveWeather(
+                    overviewData.weather,
+                    currentUserLocation.lat,
+                    currentUserLocation.lng
+                  );
+                  setWeather(nextWeather);
+                } catch (err) {
+                  console.log('Weather retry failed', err);
+                } finally {
                   setWeatherLoaded(true);
                 }
               })();
@@ -784,7 +822,7 @@ export default function HomeScreen() {
                   {weather.forecast.map((day, idx) => (
                     <View key={idx} style={styles.forecastItem}>
                       <Text style={styles.forecastDate}>
-                        {idx === 0 ? 'Today' : new Date(day.date).toLocaleDateString([], { weekday: 'short' })}
+                        {getForecastDateLabel(day.date, idx)}
                       </Text>
                       <Ionicons name={getWeatherIcon(day.code)} size={24} color="#fff" style={styles.forecastIcon} />
                       <View style={styles.forecastRain}>

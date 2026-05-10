@@ -267,11 +267,73 @@ export interface WeatherData {
     }[];
 }
 
+const OPEN_METEO_TIMEOUT_MS = 10000;
+
+async function fetchJsonWithTimeout(url: string, timeoutMs = OPEN_METEO_TIMEOUT_MS): Promise<any> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const response = await fetch(url, { signal: controller.signal });
+        const text = await response.text();
+
+        if (!response.ok) {
+            throw new ApiError(`Weather API ${response.status}: ${text}`, response.status);
+        }
+
+        return JSON.parse(text);
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+export async function getLiveWeather(lat: number, lon: number): Promise<WeatherData | null> {
+    const roundedLat = Math.round(lat * 100) / 100;
+    const roundedLon = Math.round(lon * 100) / 100;
+    const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${roundedLat}&longitude=${roundedLon}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max&temperature_unit=fahrenheit&timezone=auto`;
+    const aqiUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${roundedLat}&longitude=${roundedLon}&current=us_aqi&timezone=auto`;
+
+    const [weatherResult, aqiResult] = await Promise.allSettled([
+        fetchJsonWithTimeout(weatherUrl),
+        fetchJsonWithTimeout(aqiUrl),
+    ]);
+
+    if (weatherResult.status === 'rejected') {
+        console.log('Direct weather fallback failed', weatherResult.reason);
+        return null;
+    }
+
+    const weatherJson = weatherResult.value;
+    if (weatherJson.current?.temperature_2m === undefined || weatherJson.current?.weather_code === undefined) {
+        console.log('Direct weather fallback returned incomplete data', weatherJson.current);
+        return null;
+    }
+
+    const aqiJson = aqiResult.status === 'fulfilled' ? aqiResult.value : null;
+
+    return {
+        temp: weatherJson.current.temperature_2m,
+        condition_code: weatherJson.current.weather_code,
+        aqi: aqiJson?.current?.us_aqi ?? 0,
+        params: {
+            temp_unit: weatherJson.current_units?.temperature_2m || '°F',
+            aqi_unit: 'US AQI',
+        },
+        forecast: (weatherJson.daily?.time || []).map((date: string, i: number) => ({
+            date,
+            max_temp: weatherJson.daily.temperature_2m_max[i],
+            min_temp: weatherJson.daily.temperature_2m_min[i],
+            rain_prob: weatherJson.daily.precipitation_probability_max?.[i] || 0,
+            code: weatherJson.daily.weather_code[i],
+        })),
+    };
+}
+
 // --- Overview (hazards + shelters combined) ---
 
 export interface OverviewResponse {
     location: { lat: number; lon: number; radius_km: number; city: string | null };
-    weather?: WeatherData;
+    weather?: WeatherData | null;
     hazards: BackendHazard[];
     shelters?: {
         items: any[];

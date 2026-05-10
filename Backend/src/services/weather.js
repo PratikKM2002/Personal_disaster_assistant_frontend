@@ -1,7 +1,24 @@
 const { query } = require('../config/db');
 const fetch = require('node-fetch');
 
-const WEATHER_TIMEOUT_MS = 8000; // 8 seconds
+const WEATHER_TIMEOUT_MS = 12000;
+const AQI_TIMEOUT_MS = 6000;
+
+async function fetchJsonWithTimeout(url, timeoutMs, label) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`${label} ${response.status}: ${text}`);
+        }
+        return response.json();
+    } finally {
+        clearTimeout(timeout);
+    }
+}
 
 // --- Weather Helper ---
 async function fetchWeather(lat, lon) {
@@ -31,31 +48,14 @@ async function fetchWeather(lat, lon) {
         const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${rLat}&longitude=${rLon}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max&temperature_unit=fahrenheit&timezone=auto`;
         const aqiUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${rLat}&longitude=${rLon}&current=us_aqi&timezone=auto`;
 
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), WEATHER_TIMEOUT_MS);
-
         const [wRes, aRes] = await Promise.all([
-            fetch(weatherUrl, { signal: controller.signal }).then(async r => {
-                if (!r.ok) {
-                    const text = await r.text();
-                    throw new Error(`Weather API ${r.status}: ${text}`);
-                }
-                return r.json();
-            }),
-            fetch(aqiUrl, { signal: controller.signal }).then(async r => {
-                if (!r.ok) {
-                    // AQI is non-critical — return fallback
-                    console.warn(`[Weather] AQI API returned ${r.status}, using fallback`);
-                    return { current: { us_aqi: null } };
-                }
-                return r.json();
-            }).catch(aqiErr => {
+            fetchJsonWithTimeout(weatherUrl, WEATHER_TIMEOUT_MS, 'Weather API'),
+            fetchJsonWithTimeout(aqiUrl, AQI_TIMEOUT_MS, 'AQI API').catch(aqiErr => {
                 // AQI fetch failed — return fallback so weather still works
                 console.warn('[Weather] AQI fetch failed:', aqiErr.message);
                 return { current: { us_aqi: null } };
             })
         ]);
-        clearTimeout(timeout);
 
         // Validate that we got meaningful weather data
         if (wRes.current?.temperature_2m === undefined || wRes.current?.weather_code === undefined) {
@@ -101,6 +101,24 @@ async function fetchWeather(lat, lon) {
         } else {
             console.error('[Weather] Fetch Failed:', e.message || e);
         }
+
+        try {
+            const staleCacheRes = await query(
+                `SELECT data FROM weather_cache
+       WHERE lat=$1 AND lon=$2
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+                [rLat, rLon]
+            );
+
+            if (staleCacheRes.rows.length > 0) {
+                console.warn('[Weather] Returning stale cached weather after live fetch failed');
+                return staleCacheRes.rows[0].data;
+            }
+        } catch (cacheErr) {
+            console.warn('[Weather] Stale cache fallback failed:', cacheErr.message);
+        }
+
         return null; // Return null on failure so UI handles it gracefully
     }
 }
