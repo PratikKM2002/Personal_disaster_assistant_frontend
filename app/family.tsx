@@ -1,7 +1,7 @@
 import NativeMap from '@/components/NativeMap';
 import { AppColors, BorderRadius } from '@/constants/Colors';
 import { MOCK_USER_LOCATION } from '@/constants/Data';
-import { createFamily, FamilyMember, getFamilyMembers, joinFamily, leaveFamily, removeFamilyMember, updateStatus } from '@/services/api';
+import { createFamily, FamilyMember, getFamilyMembers, joinFamily, leaveFamily, removeFamilyMember, requestCheckinNotification, updateStatus } from '@/services/api';
 import { formatTimeAgo, getStatusColor, makePhoneCall, sendSMS } from '@/utils';
 import { Ionicons } from '@expo/vector-icons';
 import * as Battery from 'expo-battery';
@@ -303,14 +303,38 @@ export default function FamilyScreen() {
         // TODO: Only works for self really, but for demo UI we allow marking logic
     };
 
-    const requestCheckIn = (id: string) => {
+    const requestCheckIn = async (id: string) => {
         const member = family.find(m => m.id === id);
         if (!member) return;
-        if (!member.phone) {
-            Alert.alert('No Phone Number', `${member.name} has not added a phone number yet.`);
-            return;
+
+        // Always try push notification first (works even without phone number)
+        try {
+            const result = await requestCheckinNotification(id);
+            if (result.success && result.notified) {
+                Alert.alert('Check-in Sent', `A notification has been sent to ${member.name} asking them to check in.`);
+            } else if (result.reason === 'no_push_token') {
+                // No push token — fall back to SMS if phone available
+                if (member.phone) {
+                    sendSMS(member.phone, 'Please check in! Are you safe? Reply with your status.');
+                } else {
+                    Alert.alert('Cannot Reach', `${member.name} has not enabled notifications or added a phone number yet.`);
+                }
+            } else {
+                // Push failed — try SMS fallback
+                if (member.phone) {
+                    sendSMS(member.phone, 'Please check in! Are you safe? Reply with your status.');
+                } else {
+                    Alert.alert('Check-in Failed', `Could not reach ${member.name}. They may need to update their app.`);
+                }
+            }
+        } catch (err) {
+            // API call failed entirely — try SMS
+            if (member.phone) {
+                sendSMS(member.phone, 'Please check in! Are you safe? Reply with your status.');
+            } else {
+                Alert.alert('Check-in Failed', `Could not reach ${member.name}.`);
+            }
         }
-        sendSMS(member.phone, 'Please check in! Are you safe? Reply with your status.');
     };
 
     const navigateToMember = (member: UIFamilyMember) => {

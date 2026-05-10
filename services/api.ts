@@ -458,6 +458,13 @@ export async function removeFamilyMember(memberId: string): Promise<{ success: b
     }, true);
 }
 
+export async function requestCheckinNotification(memberId: string): Promise<{ success: boolean; notified?: boolean; reason?: string; message?: string }> {
+    return request<{ success: boolean; notified?: boolean; reason?: string; message?: string }>('/family/checkin-request', {
+        method: 'POST',
+        body: JSON.stringify({ memberId }),
+    }, true);
+}
+
 export async function updateStatus(
     lat: number,
     lon: number,

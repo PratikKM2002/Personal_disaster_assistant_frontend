@@ -133,6 +133,82 @@ async function familyRoutes(req, res, requireAuth) {
         }
     }
 
+    // -------- FAMILY: REQUEST CHECK-IN (push notification)
+    {
+        const m = match(req.method, req.url, { method: 'POST', path: '/family/checkin-request' });
+        if (m) {
+            const auth = await requireAuth();
+            const body = await parseJson(req);
+            const { memberId } = body || {};
+            if (!memberId) return send(res, 400, { error: 'memberId required' });
+
+            // Get requester's name and family
+            const userRes = await query(
+                `SELECT name, family_id FROM user_account WHERE id=$1`,
+                [auth.uid]
+            );
+            if (userRes.rowCount === 0) return send(res, 404, { error: 'User not found' });
+            const { name: requesterName, family_id } = userRes.rows[0];
+            if (!family_id) return send(res, 400, { error: 'You are not in a family group' });
+
+            // Get the target member's push token (must be in same family)
+            const targetRes = await query(
+                `SELECT push_token, name, family_id FROM user_account WHERE id=$1`,
+                [memberId]
+            );
+            if (targetRes.rowCount === 0 || targetRes.rows[0].family_id !== family_id) {
+                return send(res, 404, { error: 'Member not found in your family' });
+            }
+
+            const { push_token, name: targetName } = targetRes.rows[0];
+
+            if (!push_token) {
+                return send(res, 200, {
+                    success: false,
+                    reason: 'no_push_token',
+                    message: `${targetName} has not enabled push notifications yet.`
+                });
+            }
+
+            // Send push notification via Expo
+            try {
+                const fetch = require('node-fetch');
+                const controller = new AbortController();
+                const pushTimeout = setTimeout(() => controller.abort(), 8000);
+
+                await fetch('https://exp.host/--/api/v2/push/send', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Accept-encoding': 'gzip, deflate',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        to: push_token,
+                        sound: 'default',
+                        title: '📍 Check-in Request',
+                        body: `${requesterName} is asking if you're safe. Tap to update your status.`,
+                        priority: 'high',
+                        channelId: 'family',
+                        data: {
+                            type: 'checkin_request',
+                            requesterId: auth.uid,
+                            requesterName,
+                        },
+                    }),
+                    signal: controller.signal,
+                });
+                clearTimeout(pushTimeout);
+                console.log(`[Family] ${requesterName} requested check-in from ${targetName}`);
+                send(res, 200, { success: true, notified: true });
+            } catch (err) {
+                console.error('[Family] Check-in push failed:', err);
+                send(res, 200, { success: false, reason: 'push_failed' });
+            }
+            return true;
+        }
+    }
+
     return false;
 }
 
