@@ -2,7 +2,7 @@ import NativeMap from '@/components/NativeMap';
 import { AppColors, BorderRadius } from '@/constants/Colors';
 import { MOCK_USER_LOCATION } from '@/constants/Data';
 import { createFamily, FamilyMember, getFamilyMembers, joinFamily, leaveFamily, removeFamilyMember, updateStatus } from '@/services/api';
-import { formatTimeAgo, getStatusColor, makePhoneCall, openGoogleMapsNavigation, sendSMS } from '@/utils';
+import { formatTimeAgo, getStatusColor, makePhoneCall, sendSMS } from '@/utils';
 import { Ionicons } from '@expo/vector-icons';
 import * as Battery from 'expo-battery';
 import * as Location from 'expo-location';
@@ -312,13 +312,17 @@ export default function FamilyScreen() {
 
     const navigateToMember = (member: UIFamilyMember) => {
         if (member.coordinates) {
-            openGoogleMapsNavigation({
-                lat: member.coordinates[1],
-                lng: member.coordinates[0],
-                name: member.name,
+            // Use in-app navigation system instead of Google Maps
+            router.push({
+                pathname: '/navigation',
+                params: {
+                    destLat: member.coordinates[1].toString(),
+                    destLon: member.coordinates[0].toString(),
+                    destName: member.name,
+                },
             });
         } else {
-            alert('Location not available');
+            Alert.alert('Location Unavailable', `${member.name}'s location is not available yet. Request a check-in to get their latest position.`);
         }
     };
 
