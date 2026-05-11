@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
     downloadDocumentFile,
+    deleteDocument,
     fetchPreviewBase64,
     listDocuments,
     uploadDocument,
@@ -104,6 +105,21 @@ export default function DocumentsScreen() {
             setFile(null);
         } catch (e) {
             console.log(e);
+        }
+    };
+
+
+    const handleDelete = async (key: string) => {
+        try {
+            await deleteDocument(key);
+            setDocuments((prev) => prev.filter((d) => d.key !== key));
+            setPreviewUris((prev) => {
+                const updated = { ...prev };
+                delete updated[key];
+                return updated;
+            });
+        } catch (e) {
+            console.log('Delete failed:', e);
         }
     };
 
@@ -218,13 +234,22 @@ export default function DocumentsScreen() {
                             </View>
                         )}
 
-                        <TouchableOpacity
-                            style={styles.downloadBtn}
-                            onPress={() => downloadDocumentFile(doc.key, doc.fileName)}
-                        >
-                            <Ionicons name="download" size={18} color="#fff" />
-                            <Text style={styles.btnText}>Download</Text>
-                        </TouchableOpacity>
+                        <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+                            <TouchableOpacity
+                                style={[styles.downloadBtn, { flex: 1, marginTop: 0 }]}
+                                onPress={() => downloadDocumentFile(doc.key, doc.fileName)}
+                            >
+                                <Ionicons name="download" size={18} color="#fff" />
+                                <Text style={styles.btnText}>Download</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.deleteBtn}
+                                onPress={() => handleDelete(doc.key)}
+                            >
+                                <Ionicons name="trash" size={18} color="#fff" />
+                                <Text style={styles.btnText}>Delete</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 ))}
 
@@ -459,6 +484,16 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         marginTop: 10,
         lineHeight: 22,
+    },
+    deleteBtn: {
+        backgroundColor: '#dc2626',
+        padding: 14,
+        borderRadius: 12,
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 8,
+        flex: 1,
     },
     modalBg: {
         flex: 1,
