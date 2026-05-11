@@ -1,17 +1,22 @@
 import { AppColors, BorderRadius } from '@/constants/Colors';
 import { EMERGENCY_KIT } from '@/constants/Data';
-import { KitCategory } from '@/types';
+import { KitCategory, KitItem } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
+    Alert,
+    Keyboard,
     Modal,
+    Platform,
     ScrollView,
     Share,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
+    TouchableWithoutFeedback,
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,6 +27,10 @@ export default function KitScreen() {
     const [categories, setCategories] = useState<KitCategory[]>(EMERGENCY_KIT);
     const [expandedCategory, setExpandedCategory] = useState<string | null>('water');
     const [showShoppingList, setShowShoppingList] = useState(false);
+    const [shoppingChecked, setShoppingChecked] = useState<Set<string>>(new Set());
+    const [showAddItemModal, setShowAddItemModal] = useState(false);
+    const [addItemCategoryId, setAddItemCategoryId] = useState<string>('');
+    const [addItemName, setAddItemName] = useState('');
 
     // Load persisted state on mount
     useEffect(() => {
@@ -81,6 +90,45 @@ export default function KitScreen() {
         });
     };
 
+    const addCustomItem = (categoryId: string) => {
+        setAddItemCategoryId(categoryId);
+        setAddItemName('');
+        setShowAddItemModal(true);
+    };
+
+    const confirmAddItem = () => {
+        if (!addItemName.trim()) return;
+        const newItem: KitItem = {
+            id: `custom_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            name: addItemName.trim(),
+            category: addItemCategoryId,
+            checked: false,
+            quantity: 1,
+        };
+        setCategories(prev => {
+            const updated = prev.map(cat =>
+                cat.id === addItemCategoryId
+                    ? { ...cat, items: [...cat.items, newItem] }
+                    : cat
+            );
+            saveState(updated);
+            return updated;
+        });
+        setShowAddItemModal(false);
+        setAddItemName('');
+    };
+
+    const toggleShoppingItem = (itemName: string, categoryId: string, itemId: string) => {
+        // Mark the item as checked in the main kit
+        toggleItem(categoryId, itemId);
+        // Also track it in the shopping list checked set for visual feedback
+        setShoppingChecked(prev => {
+            const next = new Set(prev);
+            next.add(itemId);
+            return next;
+        });
+    };
+
     const getProgress = () => {
         const total = categories.reduce((acc, cat) => acc + cat.items.length, 0);
         const checked = categories.reduce((acc, cat) =>
@@ -102,12 +150,14 @@ export default function KitScreen() {
     };
 
     const getShoppingList = () => {
-        const uncheckedItems: { category: string; name: string; quantity: number }[] = [];
+        const uncheckedItems: { category: string; categoryId: string; itemId: string; name: string; quantity: number }[] = [];
         categories.forEach(cat => {
             cat.items.forEach(item => {
                 if (!item.checked) {
                     uncheckedItems.push({
                         category: cat.name,
+                        categoryId: cat.id,
+                        itemId: item.id,
                         name: item.name,
                         quantity: item.quantity,
                     });
@@ -120,10 +170,10 @@ export default function KitScreen() {
     const handleGenerateShoppingList = () => {
         const list = getShoppingList();
         if (list.length === 0) {
-            // All items checked — nothing to buy
-            setShowShoppingList(false);
+            Alert.alert('All Ready!', 'Your emergency kit is 100% complete. Nothing to buy!');
             return;
         }
+        setShoppingChecked(new Set()); // Reset shopping checked state
         setShowShoppingList(true);
     };
 
@@ -256,7 +306,10 @@ export default function KitScreen() {
                                     ))}
 
                                     {/* Add Item Button */}
-                                    <TouchableOpacity style={styles.addItemButton}>
+                                    <TouchableOpacity
+                                        style={styles.addItemButton}
+                                        onPress={() => addCustomItem(category.id)}
+                                    >
                                         <Ionicons name="add" size={18} color="#3b82f6" />
                                         <Text style={styles.addItemText}>Add Item</Text>
                                     </TouchableOpacity>
@@ -314,15 +367,25 @@ export default function KitScreen() {
                                                 {showHeader && (
                                                     <Text style={styles.shoppingCatHeader}>{item.category}</Text>
                                                 )}
-                                                <View style={styles.shoppingItem}>
+                                                <TouchableOpacity
+                                                    style={styles.shoppingItem}
+                                                    onPress={() => toggleShoppingItem(item.name, item.categoryId, item.itemId)}
+                                                >
                                                     <View style={styles.shoppingCheckbox}>
-                                                        <Ionicons name="square-outline" size={16} color="#6b7280" />
+                                                        <Ionicons
+                                                            name={shoppingChecked.has(item.itemId) ? 'checkbox' : 'square-outline'}
+                                                            size={18}
+                                                            color={shoppingChecked.has(item.itemId) ? '#22c55e' : '#6b7280'}
+                                                        />
                                                     </View>
-                                                    <Text style={styles.shoppingItemName}>{item.name}</Text>
+                                                    <Text style={[
+                                                        styles.shoppingItemName,
+                                                        shoppingChecked.has(item.itemId) && { textDecorationLine: 'line-through', color: '#6b7280' }
+                                                    ]}>{item.name}</Text>
                                                     {item.quantity > 1 && (
                                                         <Text style={styles.shoppingItemQty}>x{item.quantity}</Text>
                                                     )}
-                                                </View>
+                                                </TouchableOpacity>
                                             </View>
                                         );
                                     });
@@ -344,6 +407,56 @@ export default function KitScreen() {
                         </View>
                     </View>
                 </View>
+            </Modal>
+
+            {/* Add Item Modal */}
+            <Modal
+                animationType="fade"
+                transparent={true}
+                visible={showAddItemModal}
+                onRequestClose={() => setShowAddItemModal(false)}
+            >
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                    <View style={styles.modalOverlay}>
+                        <View style={[styles.modalContent, { padding: 24 }]}>
+                            <Text style={styles.modalTitle}>Add Custom Item</Text>
+                            <Text style={{ color: '#9ca3af', fontSize: 13, marginTop: 4, marginBottom: 16 }}>
+                                Enter the name of the item to add to your kit.
+                            </Text>
+                            <TextInput
+                                style={{
+                                    backgroundColor: 'rgba(255,255,255,0.08)',
+                                    borderRadius: 8,
+                                    borderWidth: 1,
+                                    borderColor: '#333',
+                                    color: '#fff',
+                                    padding: 12,
+                                    fontSize: 15,
+                                }}
+                                placeholder="Item name..."
+                                placeholderTextColor="#6b7280"
+                                value={addItemName}
+                                onChangeText={setAddItemName}
+                                autoFocus={true}
+                                onSubmitEditing={confirmAddItem}
+                                returnKeyType="done"
+                            />
+                            <View style={[styles.modalButtons, { marginTop: 20 }]}>
+                                <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowAddItemModal(false)}>
+                                    <Text style={styles.modalBtnText}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.modalBtnConfirm, !addItemName.trim() && { opacity: 0.4 }]}
+                                    onPress={confirmAddItem}
+                                    disabled={!addItemName.trim()}
+                                >
+                                    <Ionicons name="add" size={16} color="#fff" />
+                                    <Text style={[styles.modalBtnText, { fontWeight: 'bold' }]}> Add Item</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    </View>
+                </TouchableWithoutFeedback>
             </Modal>
         </SafeAreaView>
     );
