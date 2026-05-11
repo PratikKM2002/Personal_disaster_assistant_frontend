@@ -22,18 +22,25 @@ export default function AuthScreen() {
         register,
         verifyEmailCode,
         resendEmailCode,
+        startPasswordReset,
+        completePasswordReset,
         loginWithGoogle,
         googleLoading,
         isAuthenticated,
     } = useAuth();
     const [isLogin, setIsLogin] = useState(true);
     const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
+    const [isResettingPassword, setIsResettingPassword] = useState(false);
+    const [resetCodeSent, setResetCodeSent] = useState(false);
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [phone, setPhone] = useState('');
     const [verificationCode, setVerificationCode] = useState('');
+    const [resetCode, setResetCode] = useState('');
+    const [newPassword, setNewPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
+    const [showNewPassword, setShowNewPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [message, setMessage] = useState('');
@@ -56,13 +63,55 @@ export default function AuthScreen() {
 
     const resetVerification = () => {
         setIsVerifyingEmail(false);
+        setIsResettingPassword(false);
+        setResetCodeSent(false);
         setVerificationCode('');
+        setResetCode('');
+        setNewPassword('');
         setMessage('');
     };
 
     const handleSubmit = async () => {
         setError('');
         setMessage('');
+
+        if (isResettingPassword) {
+            const trimmedEmail = email.trim();
+            if (!trimmedEmail) {
+                setError('Email is required');
+                return;
+            }
+
+            if (!resetCodeSent) {
+                setLoading(true);
+                try {
+                    await startPasswordReset(trimmedEmail);
+                    setResetCodeSent(true);
+                    setMessage(`Password reset code sent to ${trimmedEmail}`);
+                } catch (e: any) {
+                    setError(getErrorMessage(e));
+                } finally {
+                    setLoading(false);
+                }
+                return;
+            }
+
+            if (!resetCode.trim() || !newPassword.trim()) {
+                setError('Reset code and new password are required');
+                return;
+            }
+
+            setLoading(true);
+            try {
+                await completePasswordReset(resetCode.trim(), newPassword);
+                router.replace('/(tabs)');
+            } catch (e: any) {
+                setError(getErrorMessage(e));
+            } finally {
+                setLoading(false);
+            }
+            return;
+        }
 
         if (isVerifyingEmail) {
             const code = verificationCode.trim();
@@ -180,7 +229,102 @@ export default function AuthScreen() {
                             </View>
                         ) : null}
 
-                        {isVerifyingEmail ? (
+                        {isResettingPassword ? (
+                            <>
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.label}>Email</Text>
+                                    <View style={styles.inputWrapper}>
+                                        <Ionicons name="mail-outline" size={18} color="#6b7280" style={styles.inputIcon} />
+                                        <TextInput
+                                            style={styles.input}
+                                            placeholder="you@example.com"
+                                            placeholderTextColor="#6b7280"
+                                            value={email}
+                                            onChangeText={setEmail}
+                                            editable={!resetCodeSent}
+                                            keyboardType="email-address"
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                        />
+                                    </View>
+                                </View>
+
+                                {resetCodeSent && (
+                                    <>
+                                        <View style={styles.inputGroup}>
+                                            <Text style={styles.label}>Reset Code</Text>
+                                            <View style={styles.inputWrapper}>
+                                                <Ionicons name="keypad-outline" size={18} color="#6b7280" style={styles.inputIcon} />
+                                                <TextInput
+                                                    style={styles.input}
+                                                    placeholder="Enter code"
+                                                    placeholderTextColor="#6b7280"
+                                                    value={resetCode}
+                                                    onChangeText={setResetCode}
+                                                    keyboardType="number-pad"
+                                                    textContentType="oneTimeCode"
+                                                    autoCapitalize="none"
+                                                    autoCorrect={false}
+                                                />
+                                            </View>
+                                        </View>
+
+                                        <View style={styles.inputGroup}>
+                                            <Text style={styles.label}>New Password</Text>
+                                            <View style={styles.inputWrapper}>
+                                                <Ionicons name="lock-closed-outline" size={18} color="#6b7280" style={styles.inputIcon} />
+                                                <TextInput
+                                                    style={[styles.input, styles.passwordInput]}
+                                                    placeholder="Enter new password"
+                                                    placeholderTextColor="#6b7280"
+                                                    value={newPassword}
+                                                    onChangeText={setNewPassword}
+                                                    secureTextEntry={!showNewPassword}
+                                                />
+                                                <TouchableOpacity
+                                                    onPress={() => setShowNewPassword(!showNewPassword)}
+                                                    style={styles.eyeButton}
+                                                >
+                                                    <Ionicons
+                                                        name={showNewPassword ? 'eye-off-outline' : 'eye-outline'}
+                                                        size={18}
+                                                        color="#6b7280"
+                                                    />
+                                                </TouchableOpacity>
+                                            </View>
+                                        </View>
+                                    </>
+                                )}
+
+                                <View style={styles.verificationActions}>
+                                    {resetCodeSent ? (
+                                        <TouchableOpacity
+                                            onPress={() => {
+                                                setError('');
+                                                setMessage('');
+                                                setResetCodeSent(false);
+                                                setResetCode('');
+                                                setNewPassword('');
+                                            }}
+                                            disabled={loading}
+                                        >
+                                            <Text style={styles.linkText}>Edit email</Text>
+                                        </TouchableOpacity>
+                                    ) : (
+                                        <View />
+                                    )}
+                                    <TouchableOpacity
+                                        onPress={() => {
+                                            setError('');
+                                            resetVerification();
+                                        }}
+                                        disabled={loading}
+                                    >
+                                        <Text style={styles.linkText}>Back to sign in</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </>
+                        ) : isVerifyingEmail ? (
                             <>
                                 <View style={styles.inputGroup}>
                                     <Text style={styles.label}>Verification Code</Text>
@@ -247,7 +391,7 @@ export default function AuthScreen() {
                             </View>
                         )}
 
-                        {!isVerifyingEmail && (
+                        {!isVerifyingEmail && !isResettingPassword && (
                             <>
                                 <View style={styles.inputGroup}>
                                     <Text style={styles.label}>Email</Text>
@@ -290,10 +434,27 @@ export default function AuthScreen() {
                                         </TouchableOpacity>
                                     </View>
                                 </View>
+
+                                {isLogin && (
+                                    <View style={styles.forgotPasswordRow}>
+                                        <TouchableOpacity
+                                            onPress={() => {
+                                                setError('');
+                                                setMessage('');
+                                                setPassword('');
+                                                setIsResettingPassword(true);
+                                                setResetCodeSent(false);
+                                            }}
+                                            disabled={loading}
+                                        >
+                                            <Text style={styles.linkText}>Forgot password?</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
                             </>
                         )}
 
-                        {!isLogin && !isVerifyingEmail && (
+                        {!isLogin && !isVerifyingEmail && !isResettingPassword && (
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>Phone (optional)</Text>
                                 <View style={styles.inputWrapper}>
@@ -321,12 +482,12 @@ export default function AuthScreen() {
                             ) : (
                                 <>
                                     <Ionicons
-                                        name={isVerifyingEmail ? 'checkmark-circle-outline' : (isLogin ? 'log-in-outline' : 'person-add-outline')}
+                                        name={isResettingPassword ? (resetCodeSent ? 'key-outline' : 'mail-outline') : (isVerifyingEmail ? 'checkmark-circle-outline' : (isLogin ? 'log-in-outline' : 'person-add-outline'))}
                                         size={20}
                                         color="#fff"
                                     />
                                     <Text style={styles.submitText}>
-                                        {isVerifyingEmail ? 'Verify Email' : (isLogin ? 'Sign In' : 'Create Account')}
+                                        {isResettingPassword ? (resetCodeSent ? 'Set New Password' : 'Send Reset Code') : (isVerifyingEmail ? 'Verify Email' : (isLogin ? 'Sign In' : 'Create Account'))}
                                     </Text>
                                 </>
                             )}
@@ -334,7 +495,7 @@ export default function AuthScreen() {
                     </View>
 
                     {/* Divider */}
-                    {!isVerifyingEmail && (
+                    {!isVerifyingEmail && !isResettingPassword && (
                         <>
                             <View style={styles.dividerContainer}>
                                 <View style={styles.dividerLine} />
@@ -566,6 +727,11 @@ const styles = StyleSheet.create({
         color: '#60a5fa',
         fontSize: 13,
         fontWeight: '600',
+    },
+    forgotPasswordRow: {
+        alignItems: 'flex-end',
+        marginTop: -8,
+        paddingHorizontal: 4,
     },
     footer: {
         flexDirection: 'row',

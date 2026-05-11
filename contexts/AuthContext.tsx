@@ -20,6 +20,8 @@ interface AuthContextType {
     register: (name: string, email: string, password: string, phone?: string) => Promise<'complete' | 'needs_verification'>;
     verifyEmailCode: (code: string) => Promise<void>;
     resendEmailCode: () => Promise<void>;
+    startPasswordReset: (email: string) => Promise<void>;
+    completePasswordReset: (code: string, newPassword: string) => Promise<void>;
     loginWithGoogle: () => Promise<void>;
     logout: () => Promise<void>;
     googleLoading: boolean;
@@ -33,6 +35,8 @@ const AuthContext = createContext<AuthContextType>({
     register: async () => 'complete',
     verifyEmailCode: async () => { },
     resendEmailCode: async () => { },
+    startPasswordReset: async () => { },
+    completePasswordReset: async () => { },
     loginWithGoogle: async () => { },
     logout: async () => { },
     googleLoading: false,
@@ -155,6 +159,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         [signUp, signUpLoaded]
     );
 
+    const startPasswordReset = useCallback(
+        async (email: string) => {
+            if (!signInLoaded || !signIn) throw new Error('Sign in not loaded');
+
+            await signIn.create({
+                strategy: 'reset_password_email_code',
+                identifier: email,
+            });
+        },
+        [signIn, signInLoaded]
+    );
+
+    const completePasswordReset = useCallback(
+        async (code: string, newPassword: string) => {
+            if (!signInLoaded || !signIn) throw new Error('Sign in not loaded');
+
+            const result = await signIn.attemptFirstFactor({
+                strategy: 'reset_password_email_code',
+                code,
+                password: newPassword,
+            });
+
+            if (result.status === 'complete' && result.createdSessionId) {
+                await setSignInActive!({ session: result.createdSessionId });
+                return;
+            }
+
+            if (result.status === 'needs_new_password') {
+                const resetResult = await signIn.resetPassword({ password: newPassword });
+                if (resetResult.status === 'complete' && resetResult.createdSessionId) {
+                    await setSignInActive!({ session: resetResult.createdSessionId });
+                    return;
+                }
+            }
+
+            throw new Error('Password reset incomplete. Please check the code and try again.');
+        },
+        [signIn, signInLoaded, setSignInActive]
+    );
+
     const loginWithGoogle = useCallback(async () => {
         setGoogleLoading(true);
         try {
@@ -188,6 +232,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 register,
                 verifyEmailCode,
                 resendEmailCode,
+                startPasswordReset,
+                completePasswordReset,
                 loginWithGoogle,
                 logout,
                 googleLoading,

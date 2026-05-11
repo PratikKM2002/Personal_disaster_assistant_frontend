@@ -106,6 +106,7 @@ async function fetchWeather(lat, lon) {
             const staleCacheRes = await query(
                 `SELECT data FROM weather_cache
        WHERE lat=$1 AND lon=$2
+       AND updated_at > NOW() - INTERVAL '6 hours'
        ORDER BY updated_at DESC
        LIMIT 1`,
                 [rLat, rLon]
