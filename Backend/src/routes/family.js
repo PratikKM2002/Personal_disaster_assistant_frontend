@@ -34,11 +34,15 @@ async function familyRoutes(req, res, requireAuth) {
             const role = action === 'created' ? 'admin' : 'member';
 
             await query(`UPDATE user_account SET family_id = $1 WHERE id = $2`, [codeStr, auth.uid]);
-            await query(
-                `INSERT INTO user_roles_v3 (user_id, role) VALUES ($1, $2)
-           ON CONFLICT (user_id) DO UPDATE SET role = $2`,
-                [auth.uid, role]
-            );
+            try {
+                await query(
+                    `INSERT INTO user_roles_v3 (user_id, role) VALUES ($1, $2)
+               ON CONFLICT (user_id) DO UPDATE SET role = $2`,
+                    [auth.uid, role]
+                );
+            } catch (roleErr) {
+                console.error('[Family] Failed to set role on join (table may not exist):', roleErr.message);
+            }
 
             // Return the actual count after joining
             const afterRes = await query(`SELECT COUNT(*) as count FROM user_account WHERE family_id = $1`, [codeStr]);
@@ -55,11 +59,15 @@ async function familyRoutes(req, res, requireAuth) {
         if (m) {
             const auth = await requireAuth();
             await query(`UPDATE user_account SET family_id = NULL WHERE id = $1`, [auth.uid]);
-            await query(
-                `INSERT INTO user_roles_v3 (user_id, role) VALUES ($1, 'member')
-           ON CONFLICT (user_id) DO UPDATE SET role = 'member'`,
-                [auth.uid]
-            );
+            try {
+                await query(
+                    `INSERT INTO user_roles_v3 (user_id, role) VALUES ($1, 'member')
+               ON CONFLICT (user_id) DO UPDATE SET role = 'member'`,
+                    [auth.uid]
+                );
+            } catch (roleErr) {
+                console.error('[Family] Failed to reset role on leave (table may not exist):', roleErr.message);
+            }
             send(res, 200, { success: true });
             return true;
         }
@@ -124,10 +132,14 @@ async function familyRoutes(req, res, requireAuth) {
 
             // Remove them
             await query(`UPDATE user_account SET family_id = NULL WHERE id = $1`, [memberId]);
-            await query(
-                `INSERT INTO user_roles_v3 (user_id, role) VALUES ($1, 'member')
-                 ON CONFLICT (user_id) DO UPDATE SET role = 'member'`, [memberId]
-            );
+            try {
+                await query(
+                    `INSERT INTO user_roles_v3 (user_id, role) VALUES ($1, 'member')
+                     ON CONFLICT (user_id) DO UPDATE SET role = 'member'`, [memberId]
+                );
+            } catch (roleErr) {
+                console.error('[Family] Failed to reset role on remove (table may not exist):', roleErr.message);
+            }
             send(res, 200, { success: true });
             return true;
         }

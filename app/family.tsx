@@ -153,7 +153,10 @@ export default function FamilyScreen() {
     };
 
     const handleJoinFamily = async () => {
-        if (!joinCode) return;
+        if (!joinCode.trim()) {
+            Alert.alert('Enter a Code', 'Please enter the family code shared with you, or tap "Create New Family" to start a new group.');
+            return;
+        }
         try {
             const res = await joinFamily(joinCode);
             if (res.action === 'created') {
@@ -548,12 +551,29 @@ export default function FamilyScreen() {
                     </View>
 
                     {family.length === 0 ? (
-                        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 }}>
+                        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 40 }}>
                             <Ionicons name="people" size={48} color="#4b5563" />
                             <Text style={{ color: '#9ca3af', marginTop: 16, fontSize: 16 }}>Waiting for family members...</Text>
                             <Text style={{ color: '#6b7280', marginTop: 8, textAlign: 'center', paddingHorizontal: 40 }}>
                                 Share code <Text style={{ color: '#fff', fontWeight: 'bold' }}>{familyId}</Text> with your family to let them join.
                             </Text>
+                            <Text style={{ color: '#4b5563', marginTop: 24, fontSize: 12, textAlign: 'center', paddingHorizontal: 40 }}>
+                                Want to join a different family instead?
+                            </Text>
+                            <TouchableOpacity
+                                style={{
+                                    marginTop: 12,
+                                    paddingVertical: 10,
+                                    paddingHorizontal: 24,
+                                    borderRadius: 8,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(239, 68, 68, 0.4)',
+                                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                }}
+                                onPress={handleLeaveFamily}
+                            >
+                                <Text style={{ color: '#ef4444', fontSize: 14, fontWeight: '500' }}>Leave & Join Another Family</Text>
+                            </TouchableOpacity>
                         </View>
                     ) : currentView === 'map' ? (
                         /* ===== MAP VIEW ===== */

@@ -5,6 +5,9 @@ async function run() {
   const migrations = [
     './db-migrate-community',
     './db-migrate-family',
+    './db-migrate-roles',
+    './db-migrate-clerk-auth',
+    './db-migrate-fix-password',
     './db-migrate-profile',
 
     './db-migrate-hazards',
