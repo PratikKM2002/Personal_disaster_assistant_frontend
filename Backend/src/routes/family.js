@@ -85,10 +85,33 @@ async function familyRoutes(req, res, requireAuth) {
                  WHERE u.id=$1`, [auth.uid]);
             if (userRes.rowCount === 0) return send(res, 404, { error: 'User not found' });
             const family_id = userRes.rows[0].family_id;
-            const myRole = userRes.rows[0].role;
+            let myRole = userRes.rows[0].role;
 
             if (!family_id) {
                 return send(res, 200, { family_id: null, members: [], my_role: myRole });
+            }
+
+            // Auto-repair: if no admin exists in this family, promote the earliest member (lowest ID)
+            try {
+                const adminCheck = await query(
+                    `SELECT u.id FROM user_account u
+                     JOIN user_roles_v3 ur ON u.id = ur.user_id
+                     WHERE u.family_id = $1 AND ur.role = 'admin'`, [family_id]);
+                if (adminCheck.rowCount === 0) {
+                    // No admin found — promote the earliest member (lowest ID) in this family
+                    const firstMember = await query(
+                        `SELECT id FROM user_account WHERE family_id = $1 ORDER BY id ASC LIMIT 1`, [family_id]);
+                    if (firstMember.rowCount > 0) {
+                        const adminId = firstMember.rows[0].id;
+                        await query(
+                            `INSERT INTO user_roles_v3 (user_id, role) VALUES ($1, 'admin')
+                             ON CONFLICT (user_id) DO UPDATE SET role = 'admin'`, [adminId]);
+                        console.log(`[Family] Auto-promoted user ${adminId} to admin for family ${family_id}`);
+                        if (adminId === auth.uid) myRole = 'admin';
+                    }
+                }
+            } catch (repairErr) {
+                console.error('[Family] Admin auto-repair failed:', repairErr.message);
             }
 
             const r = await query(
