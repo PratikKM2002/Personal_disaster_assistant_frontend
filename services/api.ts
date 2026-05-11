@@ -784,6 +784,8 @@ export async function downloadDocumentFile(key: string, fileName: string) {
 
 export async function deleteDocument(key: string): Promise<{ success: boolean }> {
     const encodedKey = encodeURIComponent(key);
-    const res = await apiFetch(`/documents/delete?key=${encodedKey}`, { method: 'DELETE' });
-    return res.json();
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/documents/delete?key=${encodedKey}`, { method: 'DELETE', headers });
+    if (!response.ok) throw new Error('Delete failed');
+    return response.json();
 }
