@@ -56,9 +56,27 @@ function parseForecastDate(date: string) {
   return new Date(year, month - 1, day);
 }
 
-function getForecastDateLabel(date: string, index: number) {
-  if (index === 0) return 'Today';
-  return parseForecastDate(date).toLocaleDateString([], { weekday: 'short' });
+function getLocalDayStart(date = new Date()) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function isSameLocalDate(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate();
+}
+
+function getForecastDateLabel(date: string) {
+  const forecastDate = parseForecastDate(date);
+  if (isSameLocalDate(forecastDate, new Date())) return 'Today';
+  return forecastDate.toLocaleDateString([], { weekday: 'short' });
+}
+
+function getVisibleForecast(forecast: WeatherData['forecast']) {
+  const today = getLocalDayStart();
+  return forecast
+    .filter(day => parseForecastDate(day.date) >= today)
+    .slice(0, 7);
 }
 
 async function resolveWeather(
@@ -819,10 +837,10 @@ export default function HomeScreen() {
                 {/* 7-Day Forecast */}
                 <Text style={styles.forecastTitle}>7-Day Forecast</Text>
                 <View style={styles.forecastList}>
-                  {weather.forecast.map((day, idx) => (
+                  {getVisibleForecast(weather.forecast).map((day, idx) => (
                     <View key={idx} style={styles.forecastItem}>
                       <Text style={styles.forecastDate}>
-                        {getForecastDateLabel(day.date, idx)}
+                        {getForecastDateLabel(day.date)}
                       </Text>
                       <Ionicons name={getWeatherIcon(day.code)} size={24} color="#fff" style={styles.forecastIcon} />
                       <View style={styles.forecastRain}>
